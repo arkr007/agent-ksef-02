@@ -1,0 +1,292 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Controller;
+
+use App\Core\Auth;
+use App\Core\Config;
+use App\Core\Csrf;
+use App\Core\Flash;
+use App\Core\Request;
+use App\Core\Response;
+use App\Core\View;
+use App\Repository\AuditLogRepository;
+use App\Service\ApplicationSettings;
+use App\Service\Validators;
+
+final class SettingsController
+{
+    public function __construct(
+        private View $view,
+        private Config $config,
+        private Auth $auth,
+        private Csrf $csrf,
+        private Flash $flash,
+        private ApplicationSettings $applicationSettings,
+        private Validators $validators,
+        private AuditLogRepository $auditLogRepository
+    ) {
+    }
+
+    public function index(Request $request): Response
+    {
+        unset($request);
+
+        $guard = $this->auth->guard();
+        if ($guard instanceof Response) {
+            return $guard;
+        }
+
+        return $this->renderPage($this->applicationSettings->snapshot());
+    }
+
+    public function update(Request $request): Response
+    {
+        $guard = $this->auth->guard();
+        if ($guard instanceof Response) {
+            return $guard;
+        }
+
+        if (!$request->isMethod('POST') || !$this->csrf->validate((string) $request->input('_csrf'))) {
+            $this->flash->add('error', 'Nieprawidłowy token CSRF. Odśwież formularz i spróbuj ponownie.');
+
+            return Response::redirect($this->config->url('/settings'));
+        }
+
+        $user = $this->auth->currentUser();
+        if ($user === null) {
+            return Response::redirect($this->config->url('/login'));
+        }
+
+        $storedSnapshot = $this->applicationSettings->snapshot();
+        $form = (string) $request->input('form_name');
+        $result = match ($form) {
+            'ksef' => $this->handleKsefUpdate($request, (int) $user['id'], $storedSnapshot),
+            'openai' => $this->handleOpenAiUpdate($request, (int) $user['id'], $storedSnapshot),
+            'bank' => $this->handleBankUpdate($request, (int) $user['id'], $storedSnapshot),
+            default => [
+                'errors' => ['Nieznany formularz ustawień.'],
+                'snapshot' => $storedSnapshot,
+                'form' => 'general',
+            ],
+        };
+
+        if ($result['errors'] !== []) {
+            $alerts = array_map(
+                static fn (string $message): array => ['type' => 'error', 'message' => $message],
+                $result['errors']
+            );
+
+            return $this->renderPage($result['snapshot'], $alerts, $result['form'], $this->anchorForForm($result['form']));
+        }
+
+        $this->flash->add('info', 'Ustawienia zostały zapisane.');
+
+        return Response::redirect($this->config->url('/settings') . $this->anchorForForm($result['form']));
+    }
+
+    private function handleKsefUpdate(Request $request, int $userId, array $storedSnapshot): array
+    {
+        $available = $this->config->get('ksef.available_environments', ['production', 'test']);
+        $available = is_array($available) ? $available : ['production', 'test'];
+
+        $data = [
+            'environment' => trim((string) $request->input('environment')),
+            'context_nip' => preg_replace('/\D+/', '', trim((string) $request->input('context_nip'))) ?: '',
+            'production_base_url' => trim((string) $request->input('production_base_url')),
+            'production_certificate_path' => trim((string) $request->input('production_certificate_path')),
+            'production_private_key_path' => trim((string) $request->input('production_private_key_path')),
+            'production_token' => trim((string) $request->input('production_token')),
+            'clear_production_token' => $request->input('clear_production_token') === '1',
+            'test_base_url' => trim((string) $request->input('test_base_url')),
+            'test_certificate_path' => trim((string) $request->input('test_certificate_path')),
+            'test_private_key_path' => trim((string) $request->input('test_private_key_path')),
+            'test_token' => trim((string) $request->input('test_token')),
+            'clear_test_token' => $request->input('clear_test_token') === '1',
+        ];
+
+        $errors = [];
+        if (!$this->validators->isAllowedKsefEnvironment($data['environment'], $available)) {
+            $errors[] = 'Wybierz poprawne środowisko KSeF.';
+        }
+
+        if ($data['context_nip'] !== '' && !$this->validators->isValidNip($data['context_nip'])) {
+            $errors[] = 'NIP kontekstu KSeF musi być poprawnym 10-cyfrowym numerem NIP.';
+        }
+
+        foreach (['production_base_url', 'test_base_url'] as $urlKey) {
+            if ($data[$urlKey] !== '' && filter_var($data[$urlKey], FILTER_VALIDATE_URL) === false) {
+                $errors[] = 'Adresy bazowe KSeF muszą być poprawnymi URL-ami.';
+                break;
+            }
+        }
+
+        $snapshot = array_replace_recursive($storedSnapshot, [
+            'ksef' => [
+                'environment' => $data['environment'],
+                'context_nip' => $data['context_nip'],
+                'production' => [
+                    'base_url' => $data['production_base_url'],
+                    'certificate_path' => $data['production_certificate_path'],
+                    'private_key_path' => $data['production_private_key_path'],
+                    'token_present' => $data['clear_production_token'] ? false : ($data['production_token'] !== '' || $storedSnapshot['ksef']['production']['token_present']),
+                ],
+                'test' => [
+                    'base_url' => $data['test_base_url'],
+                    'certificate_path' => $data['test_certificate_path'],
+                    'private_key_path' => $data['test_private_key_path'],
+                    'token_present' => $data['clear_test_token'] ? false : ($data['test_token'] !== '' || $storedSnapshot['ksef']['test']['token_present']),
+                ],
+            ],
+        ]);
+
+        if ($errors !== []) {
+            return ['errors' => $errors, 'snapshot' => $snapshot, 'form' => 'ksef'];
+        }
+
+        $this->applicationSettings->saveKsef($data);
+        $this->auditLogRepository->log(
+            action: 'settings_updated_ksef',
+            userId: $userId,
+            entityType: 'settings',
+            entityId: null,
+            context: [
+                'environment' => $data['environment'],
+                'context_nip' => $data['context_nip'] !== '' ? substr($data['context_nip'], 0, 3) . '******' . substr($data['context_nip'], -1) : null,
+                'production_token_changed' => $data['production_token'] !== '' || $data['clear_production_token'],
+                'test_token_changed' => $data['test_token'] !== '' || $data['clear_test_token'],
+            ]
+        );
+
+        return ['errors' => [], 'snapshot' => $snapshot, 'form' => 'ksef'];
+    }
+
+    private function handleOpenAiUpdate(Request $request, int $userId, array $storedSnapshot): array
+    {
+        $data = [
+            'enabled' => $request->input('enabled') === '1',
+            'model' => trim((string) $request->input('model')),
+            'api_key' => trim((string) $request->input('api_key')),
+            'clear_api_key' => $request->input('clear_api_key') === '1',
+        ];
+
+        $errors = [];
+        if ($data['model'] === '') {
+            $errors[] = 'Model OpenAI nie może być pusty.';
+        }
+
+        $hasExistingKey = (bool) $storedSnapshot['openai']['api_key_present'];
+        if (
+            $data['enabled']
+            && $data['api_key'] === ''
+            && (
+                (!$hasExistingKey && !$data['clear_api_key'])
+                || ($hasExistingKey && $data['clear_api_key'])
+            )
+        ) {
+            $errors[] = 'Jeśli OpenAI jest włączone, ustaw klucz API albo wyłącz ten tryb.';
+        }
+
+        $snapshot = array_replace_recursive($storedSnapshot, [
+            'openai' => [
+                'enabled' => $data['enabled'],
+                'model' => $data['model'],
+                'api_key_present' => $data['clear_api_key'] ? false : ($data['api_key'] !== '' || $storedSnapshot['openai']['api_key_present']),
+            ],
+        ]);
+
+        if ($errors !== []) {
+            return ['errors' => $errors, 'snapshot' => $snapshot, 'form' => 'openai'];
+        }
+
+        $this->applicationSettings->saveOpenAi($data);
+        $this->auditLogRepository->log(
+            action: 'settings_updated_openai',
+            userId: $userId,
+            entityType: 'settings',
+            entityId: null,
+            context: [
+                'enabled' => $data['enabled'],
+                'model' => $data['model'],
+                'api_key_changed' => $data['api_key'] !== '' || $data['clear_api_key'],
+            ]
+        );
+
+        return ['errors' => [], 'snapshot' => $snapshot, 'form' => 'openai'];
+    }
+
+    private function handleBankUpdate(Request $request, int $userId, array $storedSnapshot): array
+    {
+        $cleanIban = preg_replace('/\s+/', '', (string) $request->input('payer_iban')) ?: '';
+        $data = [
+            'payer_name' => trim((string) $request->input('payer_name')),
+            'payer_address' => trim((string) $request->input('payer_address')),
+            'payer_iban' => strtoupper($cleanIban),
+            'default_currency' => strtoupper(trim((string) $request->input('default_currency'))),
+        ];
+
+        $errors = [];
+        if ($data['payer_iban'] !== '' && !$this->validators->isValidIbanOrNrb($data['payer_iban'])) {
+            $errors[] = 'Numer rachunku płatnika musi być poprawnym NRB lub IBAN.';
+        }
+
+        if (!$this->validators->isSupportedCurrency($data['default_currency'])) {
+            $errors[] = 'Waluta domyślna musi być jedną z: PLN, EUR, USD.';
+        }
+
+        $snapshot = array_replace_recursive($storedSnapshot, [
+            'bank' => [
+                'payer_name' => $data['payer_name'],
+                'payer_address' => $data['payer_address'],
+                'payer_iban' => $data['payer_iban'],
+                'default_currency' => $data['default_currency'],
+            ],
+        ]);
+
+        if ($errors !== []) {
+            return ['errors' => $errors, 'snapshot' => $snapshot, 'form' => 'bank'];
+        }
+
+        $this->applicationSettings->saveBank($data);
+        $this->auditLogRepository->log(
+            action: 'settings_updated_bank',
+            userId: $userId,
+            entityType: 'settings',
+            entityId: null,
+            context: [
+                'payer_name' => $data['payer_name'],
+                'currency' => $data['default_currency'],
+                'iban_last4' => $data['payer_iban'] !== '' ? substr($data['payer_iban'], -4) : null,
+            ]
+        );
+
+        return ['errors' => [], 'snapshot' => $snapshot, 'form' => 'bank'];
+    }
+
+    private function renderPage(array $snapshot, array $alerts = [], string $activeForm = 'general', string $scrollTarget = ''): Response
+    {
+        return Response::html($this->view->render('settings', [
+            'title' => 'Ustawienia',
+            'pageTitle' => 'Ustawienia aplikacji',
+            'pageDescription' => 'Tutaj zarządzasz trybem KSeF, danymi OpenAI i danymi płatnika dla przyszłego eksportu przelewów.',
+            'alerts' => $alerts,
+            'activeForm' => $activeForm,
+            'scrollTarget' => $scrollTarget,
+            'settings' => $snapshot,
+            'openAiPresenceLabel' => $this->validators->maskSecretPresence((bool) $snapshot['openai']['api_key_present']),
+            'prodTokenPresenceLabel' => $this->validators->maskSecretPresence((bool) $snapshot['ksef']['production']['token_present']),
+            'testTokenPresenceLabel' => $this->validators->maskSecretPresence((bool) $snapshot['ksef']['test']['token_present']),
+        ]));
+    }
+
+    private function anchorForForm(string $form): string
+    {
+        return match ($form) {
+            'ksef' => '#settings-ksef',
+            'openai' => '#settings-openai',
+            'bank' => '#settings-bank',
+            default => '',
+        };
+    }
+}

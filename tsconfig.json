@@ -1,0 +1,14 @@
+{
+  "compilerOptions": {
+    "target": "ES2019",
+    "module": "system",
+    "strict": true,
+    "outFile": "public/assets/app.js",
+    "removeComments": false,
+    "skipLibCheck": true
+  },
+  "files": [
+    "frontend/validators.ts",
+    "frontend/app.ts"
+  ]
+}

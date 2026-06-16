@@ -1,0 +1,14 @@
+{
+  "name": "codex/agent-ksef-mvp",
+  "description": "MVP aplikacji do pracy z KSeF, importem przelewow i porownaniem z PDF ksiegowym.",
+  "type": "project",
+  "require": {
+    "php": "^8.2",
+    "ext-pdo": "*"
+  },
+  "autoload": {
+    "psr-4": {
+      "App\\": "src/"
+    }
+  }
+}

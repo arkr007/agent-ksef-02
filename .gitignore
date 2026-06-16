@@ -1,0 +1,9 @@
+config/config.php
+vendor/
+node_modules/
+storage/uploads/*
+storage/exports/*
+storage/logs/*
+!storage/uploads/.gitkeep
+!storage/exports/.gitkeep
+!storage/logs/.gitkeep
