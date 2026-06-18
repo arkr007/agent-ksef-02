@@ -44,9 +44,9 @@ pages = []
 
 for index in range(len(doc)):
     page = doc[index]
-    image = page.render(scale=2).to_pil()
-    output_path = os.path.join(output_dir, f"page-{index + 1:03d}.png")
-    image.save(output_path, format="PNG", optimize=True)
+    image = page.render(scale=1.5).to_pil().convert("RGB")
+    output_path = os.path.join(output_dir, f"page-{index + 1:03d}.jpg")
+    image.save(output_path, format="JPEG", quality=72, optimize=True)
     image.close()
     page.close()
     pages.append({
@@ -81,7 +81,7 @@ PY;
                 'page_count' => (int) ($decoded['page_count'] ?? 0),
                 'pages' => array_values((array) ($decoded['pages'] ?? [])),
                 'temp_dir' => $tempDir,
-                'note' => 'Strony PDF zostały wyrenderowane do obrazów PNG.',
+                'note' => 'Strony PDF zostały wyrenderowane do obrazów JPG.',
             ];
         }
 

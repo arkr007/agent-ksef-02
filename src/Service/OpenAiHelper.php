@@ -23,8 +23,11 @@ final class OpenAiHelper
             && trim((string) $this->applicationSettings->secretValue('openai.api_key')) !== '';
     }
 
-    public function recognizePdfDocuments(string $sourceFileName, array $pageTexts): array
-    {
+    public function recognizePdfDocumentsFromImages(
+        string $sourceFileName,
+        array $pageImages,
+        array $pageTexts = []
+    ): array {
         if (!$this->isReady()) {
             return [
                 'status' => 'disabled',
@@ -58,10 +61,7 @@ final class OpenAiHelper
                     ],
                     [
                         'role' => 'user',
-                        'content' => [[
-                            'type' => 'input_text',
-                            'text' => $this->buildPdfUserPrompt($sourceFileName, $pageTexts),
-                        ]],
+                        'content' => $this->buildVisionUserContent($sourceFileName, $pageImages, $pageTexts),
                     ],
                 ],
             ];
@@ -72,7 +72,7 @@ final class OpenAiHelper
 
             return [
                 'status' => 'ok',
-                'note' => 'Rozpoznanie OpenAI dla całego PDF zakończone powodzeniem.',
+                'note' => 'Rozpoznanie OpenAI dla całego PDF na podstawie obrazów zakończone powodzeniem.',
                 'data' => $decoded,
                 'raw_output' => $outputText,
             ];
@@ -87,7 +87,7 @@ final class OpenAiHelper
     private function systemPrompt(): string
     {
         return <<<'PROMPT'
-Analizujesz cały plik PDF zawierający dokumenty kosztowe firmy. Dostajesz tekst podzielony na strony, z jawnymi znacznikami numerów stron.
+Analizujesz cały plik PDF zawierający dokumenty kosztowe firmy. Otrzymujesz obrazy kolejnych stron dokumentu, w kolejności od pierwszej do ostatniej.
 
 Zadanie:
 1. Rozpoznaj wszystkie istotne dokumenty księgowe znajdujące się w tym PDF.
@@ -137,44 +137,89 @@ Zasady:
 - kwoty zapisuj jako string z kropką dziesiętną, bez spacji i bez symbolu waluty
 - currency: 3-literowy kod ISO albo null
 - daty zawsze w formacie YYYY-MM-DD albo null
-- page_from i page_to muszą odnosić się do numerów stron z wejścia
+- page_from i page_to muszą odnosić się do numerów stron wynikających z kolejności obrazów
 - jeśli dokument jest wielostronicowy, zwróć jeden wpis z odpowiednim zakresem stron
 - jeśli masz pewność, że dana strona nie jest istotnym dokumentem księgowym, nie wpisuj jej do `manual_review_pages`
+- jeśli widzisz zarówno kwotę brutto, jak i kwotę do zapłaty, zwróć obie
 PROMPT;
     }
 
-    private function buildPdfUserPrompt(string $sourceFileName, array $pageTexts): string
+    private function buildVisionUserContent(string $sourceFileName, array $pageImages, array $pageTexts): array
     {
-        $parts = [
+        $content = [[
+            'type' => 'input_text',
+            'text' => $this->buildVisionPromptIntro($sourceFileName, $pageImages, $pageTexts),
+        ]];
+
+        foreach (array_values($pageImages) as $index => $pageImage) {
+            if (!is_array($pageImage)) {
+                continue;
+            }
+
+            $imagePath = (string) ($pageImage['image_path'] ?? '');
+            if ($imagePath === '' || !is_file($imagePath)) {
+                continue;
+            }
+
+            $content[] = [
+                'type' => 'input_image',
+                'image_url' => $this->imageDataUrl($imagePath),
+                'detail' => 'high',
+            ];
+        }
+
+        return $content;
+    }
+
+    private function buildVisionPromptIntro(string $sourceFileName, array $pageImages, array $pageTexts): string
+    {
+        $pageCount = count($pageImages);
+        $lines = [
             'Plik źródłowy: ' . $sourceFileName,
-            'Poniżej znajduje się treść PDF podzielona na strony.',
-            'Każdy blok ma nagłówek [PAGE N]. Analizuj cały dokument łącznie, a nie stronę po stronie.',
+            'Za tym komunikatem znajduje się ' . $pageCount . ' obrazów stron PDF w kolejności od strony 1 do strony ' . $pageCount . '.',
+            'Najważniejszym źródłem informacji są obrazy stron.',
+            'Jeśli pomocniczy skrót tekstu strony jest dostępny, traktuj go tylko jako wsparcie, a nie źródło nadrzędne.',
         ];
 
         foreach (array_values($pageTexts) as $index => $pageText) {
-            $parts[] = '[PAGE ' . ($index + 1) . ']';
-            $parts[] = $this->summarizePageText(is_string($pageText) ? $pageText : '');
+            $snippet = $this->pageTextSnippet(is_string($pageText) ? $pageText : '');
+            if ($snippet === null) {
+                continue;
+            }
+
+            $lines[] = 'Pomocniczy skrót strony ' . ($index + 1) . ': ' . $snippet;
         }
 
-        return implode("\n\n", $parts);
+        return implode("\n", $lines);
     }
 
-    private function summarizePageText(string $pageText): string
+    private function pageTextSnippet(string $pageText): ?string
     {
         $trimmed = trim($pageText);
         if ($trimmed === '') {
-            return '[brak czytelnej warstwy tekstowej]';
+            return null;
         }
 
         $normalized = preg_replace('/\s+/', ' ', $trimmed) ?? $trimmed;
-        if (mb_strlen($normalized) <= 4200) {
-            return $normalized;
+
+        return mb_substr($normalized, 0, 240);
+    }
+
+    private function imageDataUrl(string $imagePath): string
+    {
+        $content = file_get_contents($imagePath);
+        if ($content === false || $content === '') {
+            throw new RuntimeException('Nie udało się odczytać obrazu strony PDF do wysłania do OpenAI.');
         }
 
-        $head = mb_substr($normalized, 0, 2600);
-        $tail = mb_substr($normalized, -1400);
+        $extension = strtolower(pathinfo($imagePath, PATHINFO_EXTENSION));
+        $mimeType = match ($extension) {
+            'jpg', 'jpeg' => 'image/jpeg',
+            'webp' => 'image/webp',
+            default => 'image/png',
+        };
 
-        return $head . ' [...] ' . $tail;
+        return 'data:' . $mimeType . ';base64,' . base64_encode($content);
     }
 
     private function postJson(string $url, string $apiKey, array $payload): array
@@ -201,7 +246,7 @@ PROMPT;
                 'Content-Type: application/json',
             ],
             CURLOPT_POSTFIELDS => $jsonPayload,
-            CURLOPT_TIMEOUT => 90,
+            CURLOPT_TIMEOUT => 180,
             CURLOPT_CONNECTTIMEOUT => 20,
         ]);
 

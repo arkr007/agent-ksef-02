@@ -57,31 +57,42 @@ final class PdfInvoiceCandidateParser
                 continue;
             }
 
-            foreach ($this->parseWholePdf($pageTexts, $file, $pageCount) as $parsed) {
-                if (!is_array($parsed)) {
-                    continue;
-                }
+            $renderedPages = $this->pdfPageRenderService->renderPages($filePath);
 
-                $fingerprint = $this->documentFingerprint($parsed);
-                if ($fingerprint !== null && isset($seenFingerprints[$fingerprint])) {
-                    continue;
-                }
-
-                if ($fingerprint !== null) {
-                    $seenFingerprints[$fingerprint] = true;
-                }
-
-                if (($parsed['_ai_used'] ?? false) === true) {
-                    if (($parsed['status_badge_class'] ?? 'warn') === 'ok') {
-                        $summary['ai_recognized_count']++;
-                    } else {
-                        $summary['ai_manual_review_count']++;
+            try {
+                foreach ($this->parseWholePdf(
+                    $pageTexts,
+                    array_values((array) ($renderedPages['pages'] ?? [])),
+                    $file,
+                    max($pageCount, (int) ($renderedPages['page_count'] ?? 0))
+                ) as $parsed) {
+                    if (!is_array($parsed)) {
+                        continue;
                     }
-                }
 
-                unset($parsed['_ai_used']);
-                $documents[] = $parsed;
-                $summary['parsed_document_count']++;
+                    $fingerprint = $this->documentFingerprint($parsed);
+                    if ($fingerprint !== null && isset($seenFingerprints[$fingerprint])) {
+                        continue;
+                    }
+
+                    if ($fingerprint !== null) {
+                        $seenFingerprints[$fingerprint] = true;
+                    }
+
+                    if (($parsed['_ai_used'] ?? false) === true) {
+                        if (($parsed['status_badge_class'] ?? 'warn') === 'ok') {
+                            $summary['ai_recognized_count']++;
+                        } else {
+                            $summary['ai_manual_review_count']++;
+                        }
+                    }
+
+                    unset($parsed['_ai_used']);
+                    $documents[] = $parsed;
+                    $summary['parsed_document_count']++;
+                }
+            } finally {
+                $this->pdfPageRenderService->cleanup($renderedPages['temp_dir'] ?? null);
             }
         }
 
@@ -96,10 +107,11 @@ final class PdfInvoiceCandidateParser
         ];
     }
 
-    private function parseWholePdf(array $pageTexts, array $file, int $pageCount): array
+    private function parseWholePdf(array $pageTexts, array $pageImages, array $file, int $pageCount): array
     {
-        $aiAttempt = $this->openAiHelper->recognizePdfDocuments(
+        $aiAttempt = $this->openAiHelper->recognizePdfDocumentsFromImages(
             (string) ($file['name'] ?? ''),
+            $pageImages,
             $pageTexts
         );
 
