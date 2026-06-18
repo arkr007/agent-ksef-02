@@ -575,7 +575,7 @@ $previewRows = static fn (array $rows): array => array_slice(array_values($rows)
                                         <td class="cell-note">
                                             <strong><?= htmlspecialchars((string) ($document['source_file_name'] ?? ''), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?></strong><br>
                                         </td>
-                                        <td><?= htmlspecialchars((string) ($document['source_page_number'] ?? $document['source_chunk_index'] ?? 1), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?></td>
+                                        <td><?= htmlspecialchars((string) ($document['source_page_label'] ?? $document['source_page_number'] ?? $document['source_chunk_index'] ?? 1), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?></td>
                                         <td><?= htmlspecialchars((string) ($document['recognition_mode_label'] ?? '-'), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?></td>
                                         <td><?= htmlspecialchars((string) (($document['issuer_name'] ?? '') !== '' ? $document['issuer_name'] : '-'), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?></td>
                                         <td><?= htmlspecialchars((string) (($document['invoice_number'] ?? '') !== '' ? $document['invoice_number'] : '-'), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?></td>
@@ -617,7 +617,7 @@ $previewRows = static fn (array $rows): array => array_slice(array_values($rows)
                                             <td class="cell-note">
                                                 <strong><?= htmlspecialchars((string) ($document['source_file_name'] ?? ''), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?></strong><br>
                                             </td>
-                                            <td><?= htmlspecialchars((string) ($document['source_page_number'] ?? $document['source_chunk_index'] ?? 1), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?></td>
+                                            <td><?= htmlspecialchars((string) ($document['source_page_label'] ?? $document['source_page_number'] ?? $document['source_chunk_index'] ?? 1), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?></td>
                                             <td><?= htmlspecialchars((string) ($document['recognition_mode_label'] ?? '-'), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?></td>
                                             <td><?= htmlspecialchars((string) (($document['issuer_name'] ?? '') !== '' ? $document['issuer_name'] : '-'), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?></td>
                                             <td><?= htmlspecialchars((string) (($document['invoice_number'] ?? '') !== '' ? $document['invoice_number'] : '-'), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?></td>

@@ -23,12 +23,8 @@ final class OpenAiHelper
             && trim((string) $this->applicationSettings->secretValue('openai.api_key')) !== '';
     }
 
-    public function recognizeDocumentPage(
-        string $sourceFileName,
-        int $pageNumber,
-        ?string $imagePath,
-        string $pageText = ''
-    ): array {
+    public function recognizePdfDocuments(string $sourceFileName, array $pageTexts): array
+    {
         if (!$this->isReady()) {
             return [
                 'status' => 'disabled',
@@ -48,32 +44,35 @@ final class OpenAiHelper
         }
 
         try {
+            @set_time_limit(300);
+
             $payload = [
                 'model' => $model !== '' ? $model : 'gpt-5-mini',
                 'input' => [
                     [
                         'role' => 'system',
-                        'content' => [
-                            [
-                                'type' => 'input_text',
-                                'text' => $this->systemPrompt(),
-                            ],
-                        ],
+                        'content' => [[
+                            'type' => 'input_text',
+                            'text' => $this->systemPrompt(),
+                        ]],
                     ],
                     [
                         'role' => 'user',
-                        'content' => $this->buildUserContent($sourceFileName, $pageNumber, $imagePath, $pageText),
+                        'content' => [[
+                            'type' => 'input_text',
+                            'text' => $this->buildPdfUserPrompt($sourceFileName, $pageTexts),
+                        ]],
                     ],
                 ],
             ];
 
             $response = $this->postJson(self::RESPONSES_URL, $apiKey, $payload);
             $outputText = $this->extractOutputText($response);
-            $decoded = $this->decodeJsonObject($outputText);
+            $decoded = $this->decodeJsonPayload($outputText);
 
             return [
                 'status' => 'ok',
-                'note' => 'Rozpoznanie OpenAI zakończone powodzeniem.',
+                'note' => 'Rozpoznanie OpenAI dla całego PDF zakończone powodzeniem.',
                 'data' => $decoded,
                 'raw_output' => $outputText,
             ];
@@ -88,90 +87,94 @@ final class OpenAiHelper
     private function systemPrompt(): string
     {
         return <<<'PROMPT'
-Analizujesz pojedynczą stronę PDF z dokumentami kosztowymi firmy.
+Analizujesz cały plik PDF zawierający dokumenty kosztowe firmy. Dostajesz tekst podzielony na strony, z jawnymi znacznikami numerów stron.
 
 Zadanie:
-1. Oceń, czy ta strona przedstawia istotny dokument księgowy:
-- fakturę,
-- rachunek,
-- paragon,
-- potwierdzenie płatności mogące zastępować dokument dla księgowości,
-- albo inny dokument nieistotny / nierozpoznawalny.
-2. Zwróć tylko jeden obiekt JSON bez markdownu, bez komentarzy i bez kodu.
-3. Nie zgaduj. Jeśli pole jest niepewne, wpisz null i ustaw manual_review=true.
+1. Rozpoznaj wszystkie istotne dokumenty księgowe znajdujące się w tym PDF.
+2. Łącz strony należące do tego samego dokumentu, jeśli jedna faktura zajmuje więcej niż jedną stronę.
+3. Dla każdej pozycji ustal:
+- zakres stron,
+- typ dokumentu,
+- wystawcę,
+- numer dokumentu, jeśli da się go odczytać,
+- kwotę brutto,
+- kwotę do zapłaty, jeśli występuje,
+- walutę,
+- datę wystawienia,
+- termin płatności.
+4. Jeśli jakaś strona wygląda na dokument księgowy, ale nie da się jej pewnie przypisać, wpisz ją do `manual_review_pages`.
+5. Zwróć wyłącznie jeden obiekt JSON bez markdownu i bez komentarzy.
 
-Zwróć dokładnie taki obiekt:
+Zwróć dokładnie obiekt w tej strukturze:
 {
-  "is_relevant_document": true,
-  "source_type": "invoice",
-  "invoice_number": "FV/123/2026",
-  "issuer_name": "Nazwa wystawcy",
-  "amount_due": "1234.56",
-  "currency": "PLN",
-  "issue_date": "2026-05-12",
-  "due_date": "2026-05-20",
-  "manual_review": false,
-  "confidence": "high",
-  "note": "krotki opis rozpoznania"
+  "documents": [
+    {
+      "page_from": 1,
+      "page_to": 1,
+      "source_type": "invoice",
+      "issuer_name": "Nazwa wystawcy",
+      "invoice_number": "FV/123/2026",
+      "gross_amount": "1234.56",
+      "amount_due": "1234.56",
+      "currency": "PLN",
+      "issue_date": "2026-05-12",
+      "due_date": "2026-05-20",
+      "manual_review": false,
+      "note": "krótki opis"
+    }
+  ],
+  "manual_review_pages": [
+    {
+      "page_from": 3,
+      "page_to": 3,
+      "note": "niepewny odczyt dokumentu"
+    }
+  ]
 }
 
 Zasady:
 - source_type: invoice, receipt, payment_confirmation, other
-- amount_due: liczba jako string z kropką dziesiętną, bez spacji i bez symbolu waluty
-- currency: 3-literowy kod ISO, np. PLN, EUR, USD; jeśli nie widać, wpisz null
+- kwoty zapisuj jako string z kropką dziesiętną, bez spacji i bez symbolu waluty
+- currency: 3-literowy kod ISO albo null
 - daty zawsze w formacie YYYY-MM-DD albo null
-- jeśli to nie jest istotny dokument księgowy, ustaw is_relevant_document=false, source_type="other", manual_review=true
-- jeśli dokument jest istotny, ale odczyt jest niepewny lub dane wyglądają na błędne, ustaw manual_review=true
+- page_from i page_to muszą odnosić się do numerów stron z wejścia
+- jeśli dokument jest wielostronicowy, zwróć jeden wpis z odpowiednim zakresem stron
+- jeśli masz pewność, że dana strona nie jest istotnym dokumentem księgowym, nie wpisuj jej do `manual_review_pages`
 PROMPT;
     }
 
-    private function buildUserContent(
-        string $sourceFileName,
-        int $pageNumber,
-        ?string $imagePath,
-        string $pageText
-    ): array {
-        $content = [
-            [
-                'type' => 'input_text',
-                'text' => sprintf(
-                    "Plik źródłowy: %s\nStrona: %d\nJeśli warstwa tekstowa pomaga, użyj jej tylko pomocniczo. Obraz strony jest ważniejszy od surowego OCR.\nWarstwa tekstowa:\n%s",
-                    $sourceFileName,
-                    $pageNumber,
-                    $this->trimPageText($pageText)
-                ),
-            ],
+    private function buildPdfUserPrompt(string $sourceFileName, array $pageTexts): string
+    {
+        $parts = [
+            'Plik źródłowy: ' . $sourceFileName,
+            'Poniżej znajduje się treść PDF podzielona na strony.',
+            'Każdy blok ma nagłówek [PAGE N]. Analizuj cały dokument łącznie, a nie stronę po stronie.',
         ];
 
-        if ($imagePath !== null && is_file($imagePath)) {
-            $content[] = [
-                'type' => 'input_image',
-                'image_url' => $this->imageDataUrl($imagePath),
-                'detail' => 'high',
-            ];
+        foreach (array_values($pageTexts) as $index => $pageText) {
+            $parts[] = '[PAGE ' . ($index + 1) . ']';
+            $parts[] = $this->summarizePageText(is_string($pageText) ? $pageText : '');
         }
 
-        return $content;
+        return implode("\n\n", $parts);
     }
 
-    private function trimPageText(string $pageText): string
+    private function summarizePageText(string $pageText): string
     {
         $trimmed = trim($pageText);
         if ($trimmed === '') {
             return '[brak czytelnej warstwy tekstowej]';
         }
 
-        return mb_substr($trimmed, 0, 6000);
-    }
-
-    private function imageDataUrl(string $imagePath): string
-    {
-        $content = file_get_contents($imagePath);
-        if ($content === false || $content === '') {
-            throw new RuntimeException('Nie udało się odczytać obrazu strony PDF do wysłania do OpenAI.');
+        $normalized = preg_replace('/\s+/', ' ', $trimmed) ?? $trimmed;
+        if (mb_strlen($normalized) <= 4200) {
+            return $normalized;
         }
 
-        return 'data:image/png;base64,' . base64_encode($content);
+        $head = mb_substr($normalized, 0, 2600);
+        $tail = mb_substr($normalized, -1400);
+
+        return $head . ' [...] ' . $tail;
     }
 
     private function postJson(string $url, string $apiKey, array $payload): array
@@ -198,7 +201,7 @@ PROMPT;
                 'Content-Type: application/json',
             ],
             CURLOPT_POSTFIELDS => $jsonPayload,
-            CURLOPT_TIMEOUT => 120,
+            CURLOPT_TIMEOUT => 90,
             CURLOPT_CONNECTTIMEOUT => 20,
         ]);
 
@@ -252,7 +255,7 @@ PROMPT;
         throw new RuntimeException('OpenAI API nie zwróciło czytelnej odpowiedzi tekstowej.');
     }
 
-    private function decodeJsonObject(string $outputText): array
+    private function decodeJsonPayload(string $outputText): array
     {
         $clean = trim($outputText);
         $clean = preg_replace('/^```json\s*/i', '', $clean) ?? $clean;
@@ -267,7 +270,7 @@ PROMPT;
 
         $decoded = json_decode($clean, true);
         if (!is_array($decoded)) {
-            throw new RuntimeException('OpenAI zwróciło odpowiedź, ale nie była ona poprawnym obiektem JSON.');
+            throw new RuntimeException('OpenAI zwróciło odpowiedź, ale nie była ona poprawnym JSON-em.');
         }
 
         return $decoded;

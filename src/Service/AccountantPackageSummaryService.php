@@ -163,7 +163,7 @@ final class AccountantPackageSummaryService
                 'source_reference' => trim(sprintf(
                     '%s / strona %s',
                     (string) ($document['source_file_name'] ?? ''),
-                    (string) ($document['source_page_number'] ?? $document['source_chunk_index'] ?? 1)
+                    (string) ($document['source_page_label'] ?? $document['source_page_number'] ?? $document['source_chunk_index'] ?? 1)
                 )),
             ]);
         }
@@ -310,7 +310,7 @@ final class AccountantPackageSummaryService
         foreach ($documents as $document) {
             $fingerprint = sha1(implode('|', [
                 (string) ($document['source_file_name'] ?? ''),
-                (string) ($document['source_chunk_index'] ?? ''),
+                (string) ($document['source_page_label'] ?? $document['source_chunk_index'] ?? ''),
                 (string) ($document['invoice_number'] ?? ''),
                 (string) ($document['issuer_name'] ?? ''),
                 (string) ($document['amount_due'] ?? ''),
