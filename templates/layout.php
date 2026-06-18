@@ -13,7 +13,8 @@ $navItems = [
     '/settings' => 'Ustawienia',
     '/ksef' => 'KSeF',
     '/bank-import' => 'Import bankowy',
-    '/accounting-compare' => 'Porównanie JPK',
+    '/accounting-compare' => 'Porownanie JPK',
+    '/accountant-package' => 'Pakiet dla ksiegowej',
     '/history' => 'Historia',
 ];
 ?>
@@ -29,12 +30,12 @@ $navItems = [
     <div class="app-shell">
         <header class="app-header">
             <div class="brand">
-                <span class="brand-tag">MVP księgowe AI</span>
+                <span class="brand-tag">MVP ksiegowe AI</span>
                 <h1>Agent KSeF</h1>
-                <p>PHP + TypeScript, wdrożenie przez FTP, bez logiki serwerowej zależnej od Node.js.</p>
+                <p>PHP + TypeScript, wdrozenie przez FTP, bez logiki serwerowej zaleznej od Node.js.</p>
             </div>
             <div class="nav-stack">
-                <nav class="top-nav" aria-label="Główna nawigacja">
+                <nav class="top-nav" aria-label="Glowna nawigacja">
                     <?php if ($currentUser !== null): ?>
                         <?php foreach ($navItems as $path => $label): ?>
                             <a href="<?= htmlspecialchars($baseUrl . $path, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?>">
@@ -43,7 +44,7 @@ $navItems = [
                         <?php endforeach; ?>
                     <?php else: ?>
                         <a href="<?= htmlspecialchars($baseUrl . '/login', ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?>">Logowanie</a>
-                        <a href="<?= htmlspecialchars($baseUrl . '/setup-admin', ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?>">Pierwszy użytkownik</a>
+                        <a href="<?= htmlspecialchars($baseUrl . '/setup-admin', ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?>">Pierwszy uzytkownik</a>
                     <?php endif; ?>
                 </nav>
 

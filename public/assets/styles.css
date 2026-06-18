@@ -161,7 +161,12 @@ a {
 #settings-openai,
 #settings-bank,
 #ksef-fetch-form,
-#ksef-results {
+#ksef-results,
+#accountant-package-ksef-form,
+#accountant-package-ksef-results,
+#accountant-package-pdf-analysis-form,
+#accountant-package-pdf-analysis-results,
+#accountant-package-summary {
   scroll-margin-top: 24px;
 }
 
@@ -176,6 +181,7 @@ a {
 }
 
 .metric {
+  min-width: 0;
   padding: 16px;
   border-radius: 16px;
   background: var(--panel-alt);
@@ -191,6 +197,17 @@ a {
   display: block;
   margin-top: 8px;
   font-size: 1.3rem;
+}
+
+.metric-path {
+  display: block;
+  max-width: 100%;
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.4;
+  word-break: break-all;
+  overflow-wrap: anywhere;
 }
 
 .card-grid {
@@ -404,6 +421,77 @@ a {
   word-break: break-word;
 }
 
+.accordion-panel {
+  margin-top: 16px;
+  border: 1px solid rgba(110, 84, 54, 0.15);
+  border-radius: 18px;
+  background: rgba(255, 253, 248, 0.78);
+  overflow: hidden;
+}
+
+.accordion-panel > summary {
+  list-style: none;
+  cursor: pointer;
+}
+
+.accordion-panel > summary::-webkit-details-marker {
+  display: none;
+}
+
+.accordion-summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 18px 18px 12px;
+}
+
+.accordion-title {
+  display: block;
+  font-size: 1rem;
+}
+
+.accordion-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--accent-strong);
+  font-weight: 700;
+  font-size: 0.9rem;
+  white-space: nowrap;
+}
+
+.accordion-hint::before {
+  content: "+";
+  font-size: 1rem;
+}
+
+.accordion-panel[open] .accordion-hint::before {
+  content: "−";
+}
+
+.accordion-preview,
+.accordion-full {
+  padding: 0 18px 18px;
+}
+
+.accordion-panel[open] .accordion-preview {
+  display: none;
+}
+
+.accordion-panel:not([open]) .accordion-full {
+  display: none;
+}
+
+.accordion-preview .status-list th,
+.accordion-preview .status-list td {
+  background: transparent;
+}
+
+.accordion-full .table-wrap {
+  margin-top: 6px;
+}
+
 .table-wrap {
   width: 100%;
   overflow-x: hidden;
@@ -411,6 +499,16 @@ a {
 
 .cell-note {
   max-width: 220px;
+}
+
+.match-entry {
+  display: grid;
+  gap: 2px;
+  padding: 8px 0;
+}
+
+.match-entry + .match-entry {
+  border-top: 1px solid var(--line);
 }
 
 .view-switch {

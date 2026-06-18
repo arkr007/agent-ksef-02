@@ -33,7 +33,7 @@ final class DashboardController
         return Response::html($this->view->render('dashboard', [
             'title' => 'Dashboard',
             'pageTitle' => 'Panel MVP agenta KSeF',
-            'pageDescription' => 'Panel jest już chroniony logowaniem, sesją i CSRF. Kolejne etapy dokładują logikę biznesową integracji.',
+            'pageDescription' => 'Panel jest juz chroniony logowaniem, sesja i CSRF. Kolejne etapy dokladaja logike biznesowa integracji.',
             'alerts' => $this->buildAlerts(),
             'cards' => [
                 [
@@ -43,13 +43,18 @@ final class DashboardController
                 ],
                 [
                     'title' => 'Funkcja 2',
-                    'text' => 'Import CSV, walidacja przelewów i eksport do pain.001.001.09.',
+                    'text' => 'Import CSV, walidacja przelewow i eksport do pain.001.001.09.',
                     'link' => '/bank-import',
                 ],
                 [
                     'title' => 'Funkcja 3',
-                    'text' => 'Porównanie danych z KSeF z plikiem JPK i wynik CSV.',
+                    'text' => 'Porownanie danych z KSeF z plikiem JPK i wynik CSV.',
                     'link' => '/accounting-compare',
+                ],
+                [
+                    'title' => 'Funkcja 4',
+                    'text' => 'Pakiet dla ksiegowej: kontrola kompletnej paczki faktur kosztowych za miesiac.',
+                    'link' => '/accountant-package',
                 ],
             ],
         ]));
@@ -67,7 +72,7 @@ final class DashboardController
         return Response::html($this->view->render('history', [
             'title' => 'Historia operacji',
             'pageTitle' => 'Historia operacji',
-            'pageDescription' => 'Na tym ekranie widać audit log z logowań i zdarzeń bezpieczeństwa. Kolejne etapy dołożą wpisy operacyjne modułów.',
+            'pageDescription' => 'Na tym ekranie widac audit log z logowan i zdarzen bezpieczenstwa. Kolejne etapy doloza wpisy operacyjne modulow.',
             'alerts' => [],
             'entries' => $this->auditLogRepository->recent(30),
         ]));
@@ -77,13 +82,13 @@ final class DashboardController
     {
         $alerts = [[
             'type' => 'info',
-            'message' => 'Etap 2 dołożył logowanie, sesje, CSRF, nagłówki bezpieczeństwa i audit log.',
+            'message' => 'Etap 2 dolozyl logowanie, sesje, CSRF, naglowki bezpieczenstwa i audit log.',
         ]];
 
         if (!$this->config->isConfigured()) {
             $alerts[] = [
                 'type' => 'warning',
-                'message' => 'Utwórz plik config/config.php na podstawie config/config.example.php przed uruchomieniem połączeń do bazy i integracji.',
+                'message' => 'Utworz plik config/config.php na podstawie config/config.example.php przed uruchomieniem polaczen do bazy i integracji.',
             ];
         }
 

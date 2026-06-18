@@ -15,7 +15,12 @@ final class Response
 
     public static function html(string $body, int $statusCode = 200, array $headers = []): self
     {
-        return new self($body, $statusCode, ['Content-Type' => 'text/html; charset=UTF-8'] + $headers);
+        return new self($body, $statusCode, [
+            'Content-Type' => 'text/html; charset=UTF-8',
+            'Cache-Control' => 'no-store, no-cache, must-revalidate, max-age=0',
+            'Pragma' => 'no-cache',
+            'Expires' => '0',
+        ] + $headers);
     }
 
     public static function json(array $payload, int $statusCode = 200): self

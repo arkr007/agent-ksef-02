@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Controller\AccountingCompareController;
+use App\Controller\AccountantPackageController;
 use App\Controller\AuthController;
 use App\Controller\BankImportController;
 use App\Controller\DashboardController;
@@ -25,14 +26,21 @@ use App\Repository\SettingsRepository;
 use App\Repository\UploadedFileRepository;
 use App\Repository\UserRepository;
 use App\Service\ApplicationSettings;
+use App\Service\AccountantPackageSummaryService;
 use App\Service\CsvExporter;
 use App\Service\CsvImporter;
+use App\Service\DocumentInboxCatalogService;
 use App\Service\FileUploadService;
 use App\Service\InvoiceMapper;
 use App\Service\InvoiceMatcher;
 use App\Service\JpkAccountingParser;
 use App\Service\KsefClient;
 use App\Service\NbpExchangeRateService;
+use App\Service\OpenAiHelper;
+use App\Service\PdfInboxAnalysisService;
+use App\Service\PdfInvoiceCandidateParser;
+use App\Service\PdfPageRenderService;
+use App\Service\RecurringIssuerCatalogService;
 use App\Service\SecretVault;
 use App\Service\Validators;
 use App\Service\Bank\Pain00100109Exporter;
@@ -66,6 +74,13 @@ $invoiceMapper = new InvoiceMapper();
 $invoiceMatcher = new InvoiceMatcher();
 $jpkAccountingParser = new JpkAccountingParser();
 $nbpExchangeRateService = new NbpExchangeRateService();
+$recurringIssuerCatalogService = new RecurringIssuerCatalogService();
+$documentInboxCatalogService = new DocumentInboxCatalogService($recurringIssuerCatalogService);
+$pdfInboxAnalysisService = new PdfInboxAnalysisService();
+$pdfPageRenderService = new PdfPageRenderService();
+$openAiHelper = new OpenAiHelper($applicationSettings);
+$accountantPackageSummaryService = new AccountantPackageSummaryService();
+$pdfInvoiceCandidateParser = new PdfInvoiceCandidateParser($pdfInboxAnalysisService, $pdfPageRenderService, $openAiHelper);
 $csvExporter = new CsvExporter();
 $csvImporter = new CsvImporter();
 $fileUploadService = new FileUploadService($config, $uploadedFileRepository, $auditLogRepository);
@@ -125,6 +140,21 @@ $accountingCompareController = new AccountingCompareController(
     $csvExporter,
     $auditLogRepository
 );
+$accountantPackageController = new AccountantPackageController(
+    $view,
+    $config,
+    $auth,
+    $csrf,
+    $applicationSettings,
+    $ksefClient,
+    $invoiceMapper,
+    $csvExporter,
+    $recurringIssuerCatalogService,
+    $documentInboxCatalogService,
+    $pdfInboxAnalysisService,
+    $accountantPackageSummaryService,
+    $pdfInvoiceCandidateParser
+);
 $settingsController = new SettingsController($view, $config, $auth, $csrf, $flash, $applicationSettings, $validators, $auditLogRepository);
 
 $router->get('/', [$dashboardController, 'index']);
@@ -144,6 +174,11 @@ $router->post('/bank-import/export', [$bankImportController, 'exportPain']);
 $router->get('/accounting-compare', [$accountingCompareController, 'index']);
 $router->post('/accounting-compare/import', [$accountingCompareController, 'import']);
 $router->get('/accounting-compare/export', [$accountingCompareController, 'export']);
+$router->get('/accountant-package', [$accountantPackageController, 'index']);
+$router->get('/accountant-package/export', [$accountantPackageController, 'export']);
+$router->post('/accountant-package/fetch-ksef', [$accountantPackageController, 'fetchKsef']);
+$router->post('/accountant-package/analyze-pdfs', [$accountantPackageController, 'analyzePdfInbox']);
+$router->post('/accountant-package/parse-pdf-candidates', [$accountantPackageController, 'parsePdfCandidates']);
 $router->get('/history', [$dashboardController, 'history']);
 
 try {
