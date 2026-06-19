@@ -90,7 +90,8 @@ final class AccountingCompareController
                     'message' => 'Wybierz poprawny miesiac porownania w formacie RRRR-MM.',
                 ]],
                 selectedMonth: $compareMonth,
-                scrollTarget: '#compare-import-form'
+                scrollTarget: '#compare-import-form',
+                useCurrentPackage: false
             );
         }
 
@@ -177,7 +178,8 @@ final class AccountingCompareController
                     'message' => $exception->getMessage(),
                 ]],
                 selectedMonth: $compareMonth,
-                scrollTarget: '#compare-import-form'
+                scrollTarget: '#compare-import-form',
+                useCurrentPackage: false
             );
         }
     }
@@ -241,9 +243,13 @@ final class AccountingCompareController
         array $alerts = [],
         ?array $package = null,
         string $selectedMonth = '',
-        string $scrollTarget = ''
+        string $scrollTarget = '',
+        bool $useCurrentPackage = true
     ): Response {
-        $package ??= $this->currentPackage($userId);
+        if ($package === null && $useCurrentPackage) {
+            $package = $this->currentPackage($userId);
+        }
+
         if ($selectedMonth === '') {
             $selectedMonth = is_array($package) && isset($package['compare_month'])
                 ? (string) $package['compare_month']
