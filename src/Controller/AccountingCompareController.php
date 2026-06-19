@@ -108,17 +108,26 @@ final class AccountingCompareController
             $parsedEntries = array_values((array) ($parsed['entries'] ?? []));
             $entryIds = $this->accountingEntryRepository->createMany($userId, (int) $uploadedFile['id'], $parsedEntries);
             $entries = $this->attachEntryIds($parsedEntries, $entryIds);
+            $documentTypeDemand = $this->detectRequestedDocumentTypes($entries);
 
-            $costInvoices = $this->mapLiveKsefInvoices(
-                $this->ksefClient->getCachedCostInvoiceMetadataByMonth($monthRange['year'], $monthRange['month']),
-                'cost',
-                1
-            );
-            $saleInvoices = $this->mapLiveKsefInvoices(
-                $this->ksefClient->getCachedSalesInvoiceMetadataByMonth($monthRange['year'], $monthRange['month']),
-                'sale',
-                count($costInvoices) + 1
-            );
+            $costInvoices = [];
+            if ($documentTypeDemand['cost']) {
+                $costInvoices = $this->mapLiveKsefInvoices(
+                    $this->ksefClient->getCachedCostInvoiceMetadataByMonth($monthRange['year'], $monthRange['month']),
+                    'cost',
+                    1
+                );
+            }
+
+            $saleInvoices = [];
+            if ($documentTypeDemand['sale']) {
+                $saleInvoices = $this->mapLiveKsefInvoices(
+                    $this->ksefClient->getCachedSalesInvoiceMetadataByMonth($monthRange['year'], $monthRange['month']),
+                    'sale',
+                    count($costInvoices) + 1
+                );
+            }
+
             $invoices = $this->nbpExchangeRateService->enrichInvoicesForComparison(
                 array_merge($costInvoices, $saleInvoices),
                 $monthRange['year'],
@@ -495,6 +504,35 @@ final class AccountingCompareController
             'sale', 'sprzedaz', 'przychod' => 'sale',
             default => 'cost',
         };
+    }
+
+    private function detectRequestedDocumentTypes(array $entries): array
+    {
+        $hasCost = false;
+        $hasSale = false;
+
+        foreach ($entries as $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+
+            $type = $this->normalizeType((string) ($entry['document_type'] ?? 'cost'));
+            if ($type === 'sale') {
+                $hasSale = true;
+                continue;
+            }
+
+            $hasCost = true;
+        }
+
+        if (!$hasCost && !$hasSale) {
+            $hasCost = true;
+        }
+
+        return [
+            'cost' => $hasCost,
+            'sale' => $hasSale,
+        ];
     }
 
     private function storeCurrentPackage(array $package): void

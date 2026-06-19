@@ -317,7 +317,21 @@ final class KsefClient
             return $cachedItem['payloads'];
         }
 
-        $payloads = $this->getInvoicesByMonth($year, $month, $subjectType, false);
+        try {
+            $payloads = $this->getInvoicesByMonth($year, $month, $subjectType, false);
+        } catch (RuntimeException $exception) {
+            if (
+                $this->isRateLimitException($exception)
+                && is_array($cachedItem)
+                && isset($cachedItem['payloads'])
+                && is_array($cachedItem['payloads'])
+            ) {
+                return $cachedItem['payloads'];
+            }
+
+            throw $exception;
+        }
+
         $cache[$cacheKey] = [
             'fetched_at' => time(),
             'payloads' => $payloads,
@@ -775,6 +789,12 @@ final class KsefClient
         }
 
         return null;
+    }
+
+    private function isRateLimitException(RuntimeException $exception): bool
+    {
+        return str_contains($exception->getMessage(), 'HTTP 429')
+            || str_contains($exception->getMessage(), 'Przekroczono limit zapytan KSeF');
     }
 
     private function buildUrl(string $baseUrl, string $path): string
