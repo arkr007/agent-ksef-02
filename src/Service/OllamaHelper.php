@@ -98,6 +98,70 @@ final class OllamaHelper implements DocumentAiRecognizerInterface
         }
     }
 
+    public function probeConnection(
+        ?string $baseUrl = null,
+        ?string $model = null,
+        ?bool $localOnly = null
+    ): array {
+        $snapshot = $this->applicationSettings->snapshot();
+        $baseUrl ??= trim((string) ($snapshot['ollama']['base_url'] ?? 'http://127.0.0.1:11434'));
+        $model ??= trim((string) ($snapshot['ollama']['model'] ?? ''));
+        $localOnly ??= (bool) ($snapshot['ollama']['local_only'] ?? true);
+
+        if ($baseUrl === '' || !$this->validators->isValidHttpUrl($baseUrl)) {
+            return [
+                'status' => 'error',
+                'message' => 'Endpoint Ollama nie jest poprawnym adresem HTTP lub HTTPS.',
+            ];
+        }
+
+        if ($localOnly && !$this->validators->isLocalHostUrl($baseUrl)) {
+            return [
+                'status' => 'error',
+                'message' => 'Przy local_only endpoint Ollama musi wskazywac localhost tej samej stacji.',
+            ];
+        }
+
+        if ($model === '') {
+            return [
+                'status' => 'error',
+                'message' => 'Model Ollama nie moze byc pusty.',
+            ];
+        }
+
+        try {
+            $response = $this->getJson(rtrim($baseUrl, '/') . '/api/tags', 15);
+            $models = array_values((array) ($response['models'] ?? []));
+            $availableNames = [];
+            foreach ($models as $entry) {
+                if (!is_array($entry)) {
+                    continue;
+                }
+
+                $name = trim((string) ($entry['name'] ?? ''));
+                if ($name !== '') {
+                    $availableNames[] = $name;
+                }
+            }
+
+            $modelInstalled = in_array($model, $availableNames, true);
+
+            return [
+                'status' => $modelInstalled ? 'ok' : 'warning',
+                'message' => $modelInstalled
+                    ? 'Polaczenie z Ollama dziala, a wybrany model jest zainstalowany.'
+                    : 'Polaczenie z Ollama dziala, ale wybrany model nie jest widoczny na liscie zainstalowanych modeli.',
+                'available_models' => $availableNames,
+                'model_installed' => $modelInstalled,
+            ];
+        } catch (\Throwable $exception) {
+            return [
+                'status' => 'error',
+                'message' => 'Nie udalo sie polaczyc z Ollama: ' . $exception->getMessage(),
+            ];
+        }
+    }
+
     private function imagePayloads(array $pageImages): array
     {
         $images = [];
@@ -172,6 +236,49 @@ final class OllamaHelper implements DocumentAiRecognizerInterface
         if ($httpCode >= 400) {
             $message = (string) ($decoded['error'] ?? 'Nieznany blad Ollamy.');
             throw new RuntimeException('Ollama zwrocila HTTP ' . $httpCode . ': ' . $message);
+        }
+
+        return $decoded;
+    }
+
+    private function getJson(string $url, int $timeout): array
+    {
+        if (!function_exists('curl_init')) {
+            throw new RuntimeException('PHP nie ma rozszerzenia cURL, wiec nie moze polaczyc sie z Ollama.');
+        }
+
+        $ch = curl_init($url);
+        if ($ch === false) {
+            throw new RuntimeException('Nie udalo sie zainicjowac polaczenia z Ollama.');
+        }
+
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_HTTPHEADER => [
+                'Accept: application/json',
+            ],
+            CURLOPT_TIMEOUT => $timeout,
+            CURLOPT_CONNECTTIMEOUT => 10,
+        ]);
+
+        $rawResponse = curl_exec($ch);
+        $httpCode = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+        $curlError = curl_error($ch);
+        curl_close($ch);
+
+        if (!is_string($rawResponse) || $rawResponse === '') {
+            $message = $curlError !== '' ? $curlError : 'Pusta odpowiedz z Ollamy.';
+            throw new RuntimeException($message);
+        }
+
+        $decoded = json_decode($rawResponse, true);
+        if (!is_array($decoded)) {
+            throw new RuntimeException('Ollama zwrocila odpowiedz, ktorej nie udalo sie zdekodowac jako JSON.');
+        }
+
+        if ($httpCode >= 400) {
+            $message = (string) ($decoded['error'] ?? 'Nieznany blad Ollamy.');
+            throw new RuntimeException('HTTP ' . $httpCode . ': ' . $message);
         }
 
         return $decoded;

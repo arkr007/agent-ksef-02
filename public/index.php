@@ -159,7 +159,7 @@ $accountantPackageController = new AccountantPackageController(
     $accountantPackageSummaryService,
     $pdfInvoiceCandidateParser
 );
-$settingsController = new SettingsController($view, $config, $auth, $csrf, $flash, $applicationSettings, $validators, $auditLogRepository);
+$settingsController = new SettingsController($view, $config, $auth, $csrf, $flash, $applicationSettings, $validators, $auditLogRepository, $ollamaHelper);
 
 $router->get('/', [$dashboardController, 'index']);
 $router->get('/login', [$authController, 'loginForm']);

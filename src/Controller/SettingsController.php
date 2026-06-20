@@ -13,6 +13,7 @@ use App\Core\Response;
 use App\Core\View;
 use App\Repository\AuditLogRepository;
 use App\Service\ApplicationSettings;
+use App\Service\OllamaHelper;
 use App\Service\Validators;
 
 final class SettingsController
@@ -25,7 +26,8 @@ final class SettingsController
         private Flash $flash,
         private ApplicationSettings $applicationSettings,
         private Validators $validators,
-        private AuditLogRepository $auditLogRepository
+        private AuditLogRepository $auditLogRepository,
+        private OllamaHelper $ollamaHelper
     ) {
     }
 
@@ -64,6 +66,7 @@ final class SettingsController
         $result = match ($form) {
             'ksef' => $this->handleKsefUpdate($request, (int) $user['id'], $storedSnapshot),
             'ai' => $this->handleAiUpdate($request, (int) $user['id'], $storedSnapshot),
+            'ai_test' => $this->handleAiTest($request, $storedSnapshot),
             'bank' => $this->handleBankUpdate($request, (int) $user['id'], $storedSnapshot),
             default => [
                 'errors' => ['Nieznany formularz ustawien.'],
@@ -79,6 +82,10 @@ final class SettingsController
             );
 
             return $this->renderPage($result['snapshot'], $alerts, $result['form'], $this->anchorForForm($result['form']));
+        }
+
+        if (isset($result['alerts']) && is_array($result['alerts'])) {
+            return $this->renderPage($result['snapshot'], $result['alerts'], $result['form'], $this->anchorForForm($result['form']));
         }
 
         $this->flash->add('info', 'Ustawienia zostaly zapisane.');
@@ -214,22 +221,10 @@ final class SettingsController
             $errors[] = 'Dla trybu hybrid lub openai ustaw klucz API OpenAI albo wybierz inny tryb.';
         }
 
-        $snapshot = array_replace_recursive($storedSnapshot, [
-            'ai' => [
-                'provider' => $data['provider'],
-            ],
-            'openai' => [
-                'model' => $data['model'],
-                'api_key_present' => $data['clear_api_key'] ? false : ($data['api_key'] !== '' || $storedSnapshot['openai']['api_key_present']),
-            ],
-            'ollama' => [
-                'base_url' => $data['ollama_base_url'],
-                'model' => $data['ollama_model'],
-                'timeout_seconds' => (string) $data['ollama_timeout_seconds'],
-                'keep_alive' => $data['ollama_keep_alive'],
-                'local_only' => $data['ollama_local_only'],
-            ],
-        ]);
+        $snapshot = $this->mergeAiSnapshot($storedSnapshot, $data);
+        $snapshot['openai']['api_key_present'] = $data['clear_api_key']
+            ? false
+            : ($data['api_key'] !== '' || (bool) $storedSnapshot['openai']['api_key_present']);
 
         if ($errors !== []) {
             return ['errors' => $errors, 'snapshot' => $snapshot, 'form' => 'ai'];
@@ -252,6 +247,42 @@ final class SettingsController
         );
 
         return ['errors' => [], 'snapshot' => $snapshot, 'form' => 'ai'];
+    }
+
+    private function handleAiTest(Request $request, array $storedSnapshot): array
+    {
+        $data = [
+            'provider' => trim((string) $request->input('provider')),
+            'model' => trim((string) $request->input('model')),
+            'api_key' => '',
+            'clear_api_key' => false,
+            'ollama_base_url' => trim((string) $request->input('ollama_base_url')),
+            'ollama_model' => trim((string) $request->input('ollama_model')),
+            'ollama_timeout_seconds' => max(30, (int) $request->input('ollama_timeout_seconds', 180)),
+            'ollama_keep_alive' => trim((string) $request->input('ollama_keep_alive')),
+            'ollama_local_only' => $request->input('ollama_local_only') === '1',
+        ];
+
+        $snapshot = $this->mergeAiSnapshot($storedSnapshot, $data);
+        $probe = $this->ollamaHelper->probeConnection(
+            $data['ollama_base_url'],
+            $data['ollama_model'],
+            $data['ollama_local_only']
+        );
+
+        return [
+            'errors' => [],
+            'snapshot' => $snapshot,
+            'form' => 'ai',
+            'alerts' => [[
+                'type' => match ((string) ($probe['status'] ?? 'warning')) {
+                    'ok' => 'info',
+                    'error' => 'error',
+                    default => 'warning',
+                },
+                'message' => $this->probeMessage($probe),
+            ]],
+        ];
     }
 
     private function handleBankUpdate(Request $request, int $userId, array $storedSnapshot): array
@@ -302,6 +333,37 @@ final class SettingsController
         return ['errors' => [], 'snapshot' => $snapshot, 'form' => 'bank'];
     }
 
+    private function mergeAiSnapshot(array $storedSnapshot, array $data): array
+    {
+        return array_replace_recursive($storedSnapshot, [
+            'ai' => [
+                'provider' => $data['provider'] !== '' ? $data['provider'] : ($storedSnapshot['ai']['provider'] ?? 'ollama'),
+            ],
+            'openai' => [
+                'model' => $data['model'] !== '' ? $data['model'] : ($storedSnapshot['openai']['model'] ?? ''),
+                'api_key_present' => (bool) ($storedSnapshot['openai']['api_key_present'] ?? false),
+            ],
+            'ollama' => [
+                'base_url' => $data['ollama_base_url'] !== '' ? $data['ollama_base_url'] : ($storedSnapshot['ollama']['base_url'] ?? ''),
+                'model' => $data['ollama_model'] !== '' ? $data['ollama_model'] : ($storedSnapshot['ollama']['model'] ?? ''),
+                'timeout_seconds' => (string) $data['ollama_timeout_seconds'],
+                'keep_alive' => $data['ollama_keep_alive'] !== '' ? $data['ollama_keep_alive'] : ($storedSnapshot['ollama']['keep_alive'] ?? ''),
+                'local_only' => $data['ollama_local_only'],
+            ],
+        ]);
+    }
+
+    private function probeMessage(array $probe): string
+    {
+        $message = (string) ($probe['message'] ?? 'Brak odpowiedzi z testu polaczenia.');
+        $availableModels = array_values(array_filter((array) ($probe['available_models'] ?? []), 'is_string'));
+        if ($availableModels === []) {
+            return $message;
+        }
+
+        return $message . ' Dostepne modele: ' . implode(', ', $availableModels) . '.';
+    }
+
     private function renderPage(array $snapshot, array $alerts = [], string $activeForm = 'general', string $scrollTarget = ''): Response
     {
         return Response::html($this->view->render('settings', [
@@ -323,7 +385,7 @@ final class SettingsController
     {
         return match ($form) {
             'ksef' => '#settings-ksef',
-            'ai' => '#settings-ai',
+            'ai', 'ai_test' => '#settings-ai',
             'bank' => '#settings-bank',
             default => '',
         };

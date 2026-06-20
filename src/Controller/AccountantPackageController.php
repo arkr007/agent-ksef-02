@@ -26,6 +26,7 @@ final class AccountantPackageController
     private const SESSION_KSEF_KEY = 'accountant_package_current_ksef';
     private const SESSION_PDF_ANALYSIS_KEY = 'accountant_package_current_pdf_analysis';
     private const SESSION_PDF_CANDIDATES_KEY = 'accountant_package_current_pdf_candidates';
+    private const REMOTE_AI_PROVIDERS = ['hybrid', 'openai'];
 
     public function __construct(
         private View $view,
@@ -393,6 +394,24 @@ final class AccountantPackageController
             );
         }
 
+        $aiProvider = $this->activeAiProvider();
+        if (
+            in_array($aiProvider, self::REMOTE_AI_PROVIDERS, true)
+            && $request->input('acknowledge_remote_ai') !== '1'
+        ) {
+            return $this->renderPage(
+                $userId,
+                alerts: array_merge($alerts, [[
+                    'type' => 'error',
+                    'message' => 'Aktywny tryb AI to ' . $aiProvider . '. Potwierdz, ze zgadzasz sie na przetwarzanie danych poza lokalna stacja, aby uruchomic analize.',
+                ]]),
+                catalog: $catalog,
+                documentCatalog: $documentCatalog,
+                selectedMonth: $selectedMonth !== '' ? $selectedMonth : date('Y-m'),
+                scrollTarget: '#accountant-package-pdf-candidates-form'
+            );
+        }
+
         $package = $this->pdfInvoiceCandidateParser->parseFiles($pdfFiles);
         $this->storePdfCandidatesPackage($userId, $package);
 
@@ -548,6 +567,7 @@ final class AccountantPackageController
         $environmentSettings = is_array($settings['ksef'][$activeEnvironment] ?? null)
             ? $settings['ksef'][$activeEnvironment]
             : [];
+        $aiProvider = (string) ($settings['ai']['provider'] ?? 'ollama');
         $packageSummary = null;
         if ($catalog !== null && $ksefPackage !== null) {
             $packageSummary = $this->accountantPackageSummaryService->build($catalog, $ksefPackage, $pdfCandidatesPackage);
@@ -571,7 +591,16 @@ final class AccountantPackageController
             'activeEnvironment' => $activeEnvironment,
             'environmentBaseUrl' => (string) ($environmentSettings['base_url'] ?? ''),
             'tokenPresenceLabel' => !empty($environmentSettings['token_present']) ? 'ustawione' : 'brak',
+            'aiProvider' => $aiProvider,
+            'requiresRemoteAiConfirmation' => in_array($aiProvider, self::REMOTE_AI_PROVIDERS, true),
         ]));
+    }
+
+    private function activeAiProvider(): string
+    {
+        $settings = $this->applicationSettings->snapshot();
+
+        return (string) ($settings['ai']['provider'] ?? 'ollama');
     }
 
     private function buildKsefPackage(int $userId, int $year, int $month): array

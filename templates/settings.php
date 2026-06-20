@@ -152,7 +152,6 @@
 
             <form method="post" action="<?= htmlspecialchars($config->url('/settings'), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?>" class="settings-form" autocomplete="off">
                 <input type="hidden" name="_csrf" value="<?= htmlspecialchars((string) $csrfToken, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?>">
-                <input type="hidden" name="form_name" value="ai">
 
                 <div class="form-grid">
                     <div class="form-field">
@@ -223,7 +222,10 @@
                     Wyczysc zapisany OpenAI API key
                 </label>
 
-                <button class="button" type="submit">Zapisz ustawienia AI</button>
+                <div class="form-actions">
+                    <button class="button button-secondary" type="submit" name="form_name" value="ai_test">Sprawdz polaczenie z Ollama</button>
+                    <button class="button" type="submit" name="form_name" value="ai">Zapisz ustawienia AI</button>
+                </div>
             </form>
         </article>
 
