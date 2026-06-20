@@ -49,7 +49,7 @@ final class SettingsController
         }
 
         if (!$request->isMethod('POST') || !$this->csrf->validate((string) $request->input('_csrf'))) {
-            $this->flash->add('error', 'Nieprawidłowy token CSRF. Odśwież formularz i spróbuj ponownie.');
+            $this->flash->add('error', 'Nieprawidlowy token CSRF. Odswiez formularz i sprobuj ponownie.');
 
             return Response::redirect($this->config->url('/settings'));
         }
@@ -63,10 +63,10 @@ final class SettingsController
         $form = (string) $request->input('form_name');
         $result = match ($form) {
             'ksef' => $this->handleKsefUpdate($request, (int) $user['id'], $storedSnapshot),
-            'openai' => $this->handleOpenAiUpdate($request, (int) $user['id'], $storedSnapshot),
+            'ai' => $this->handleAiUpdate($request, (int) $user['id'], $storedSnapshot),
             'bank' => $this->handleBankUpdate($request, (int) $user['id'], $storedSnapshot),
             default => [
-                'errors' => ['Nieznany formularz ustawień.'],
+                'errors' => ['Nieznany formularz ustawien.'],
                 'snapshot' => $storedSnapshot,
                 'form' => 'general',
             ],
@@ -81,7 +81,7 @@ final class SettingsController
             return $this->renderPage($result['snapshot'], $alerts, $result['form'], $this->anchorForForm($result['form']));
         }
 
-        $this->flash->add('info', 'Ustawienia zostały zapisane.');
+        $this->flash->add('info', 'Ustawienia zostaly zapisane.');
 
         return Response::redirect($this->config->url('/settings') . $this->anchorForForm($result['form']));
     }
@@ -108,16 +108,16 @@ final class SettingsController
 
         $errors = [];
         if (!$this->validators->isAllowedKsefEnvironment($data['environment'], $available)) {
-            $errors[] = 'Wybierz poprawne środowisko KSeF.';
+            $errors[] = 'Wybierz poprawne srodowisko KSeF.';
         }
 
         if ($data['context_nip'] !== '' && !$this->validators->isValidNip($data['context_nip'])) {
-            $errors[] = 'NIP kontekstu KSeF musi być poprawnym 10-cyfrowym numerem NIP.';
+            $errors[] = 'NIP kontekstu KSeF musi byc poprawnym 10-cyfrowym numerem NIP.';
         }
 
         foreach (['production_base_url', 'test_base_url'] as $urlKey) {
             if ($data[$urlKey] !== '' && filter_var($data[$urlKey], FILTER_VALIDATE_URL) === false) {
-                $errors[] = 'Adresy bazowe KSeF muszą być poprawnymi URL-ami.';
+                $errors[] = 'Adresy bazowe KSeF musza byc poprawnymi URL-ami.';
                 break;
             }
         }
@@ -162,58 +162,96 @@ final class SettingsController
         return ['errors' => [], 'snapshot' => $snapshot, 'form' => 'ksef'];
     }
 
-    private function handleOpenAiUpdate(Request $request, int $userId, array $storedSnapshot): array
+    private function handleAiUpdate(Request $request, int $userId, array $storedSnapshot): array
     {
+        $availableProviders = $this->config->get('ai.available_providers', ['ollama', 'hybrid', 'openai']);
+        $availableProviders = is_array($availableProviders) ? $availableProviders : ['ollama', 'hybrid', 'openai'];
+
         $data = [
-            'enabled' => $request->input('enabled') === '1',
+            'provider' => trim((string) $request->input('provider')),
             'model' => trim((string) $request->input('model')),
             'api_key' => trim((string) $request->input('api_key')),
             'clear_api_key' => $request->input('clear_api_key') === '1',
+            'ollama_base_url' => trim((string) $request->input('ollama_base_url')),
+            'ollama_model' => trim((string) $request->input('ollama_model')),
+            'ollama_timeout_seconds' => max(30, (int) $request->input('ollama_timeout_seconds', 180)),
+            'ollama_keep_alive' => trim((string) $request->input('ollama_keep_alive')),
+            'ollama_local_only' => $request->input('ollama_local_only') === '1',
         ];
 
         $errors = [];
+        if (!$this->validators->isAllowedAiProvider($data['provider'], $availableProviders)) {
+            $errors[] = 'Wybierz poprawny tryb AI.';
+        }
+
         if ($data['model'] === '') {
-            $errors[] = 'Model OpenAI nie może być pusty.';
+            $errors[] = 'Model OpenAI nie moze byc pusty.';
+        }
+
+        if ($data['ollama_model'] === '') {
+            $errors[] = 'Model Ollama nie moze byc pusty.';
+        }
+
+        if (!$this->validators->isValidHttpUrl($data['ollama_base_url'])) {
+            $errors[] = 'Endpoint Ollama musi byc poprawnym adresem HTTP lub HTTPS.';
+        } elseif ($data['ollama_local_only'] && !$this->validators->isLocalHostUrl($data['ollama_base_url'])) {
+            $errors[] = 'Dla trybu local_only endpoint Ollama musi wskazywac localhost tej samej stacji.';
+        }
+
+        if ($data['ollama_keep_alive'] === '') {
+            $errors[] = 'Parametr keep_alive dla Ollamy nie moze byc pusty.';
         }
 
         $hasExistingKey = (bool) $storedSnapshot['openai']['api_key_present'];
         if (
-            $data['enabled']
+            in_array($data['provider'], ['hybrid', 'openai'], true)
             && $data['api_key'] === ''
             && (
                 (!$hasExistingKey && !$data['clear_api_key'])
                 || ($hasExistingKey && $data['clear_api_key'])
             )
         ) {
-            $errors[] = 'Jeśli OpenAI jest włączone, ustaw klucz API albo wyłącz ten tryb.';
+            $errors[] = 'Dla trybu hybrid lub openai ustaw klucz API OpenAI albo wybierz inny tryb.';
         }
 
         $snapshot = array_replace_recursive($storedSnapshot, [
+            'ai' => [
+                'provider' => $data['provider'],
+            ],
             'openai' => [
-                'enabled' => $data['enabled'],
                 'model' => $data['model'],
                 'api_key_present' => $data['clear_api_key'] ? false : ($data['api_key'] !== '' || $storedSnapshot['openai']['api_key_present']),
+            ],
+            'ollama' => [
+                'base_url' => $data['ollama_base_url'],
+                'model' => $data['ollama_model'],
+                'timeout_seconds' => (string) $data['ollama_timeout_seconds'],
+                'keep_alive' => $data['ollama_keep_alive'],
+                'local_only' => $data['ollama_local_only'],
             ],
         ]);
 
         if ($errors !== []) {
-            return ['errors' => $errors, 'snapshot' => $snapshot, 'form' => 'openai'];
+            return ['errors' => $errors, 'snapshot' => $snapshot, 'form' => 'ai'];
         }
 
-        $this->applicationSettings->saveOpenAi($data);
+        $this->applicationSettings->saveAi($data);
         $this->auditLogRepository->log(
-            action: 'settings_updated_openai',
+            action: 'settings_updated_ai',
             userId: $userId,
             entityType: 'settings',
             entityId: null,
             context: [
-                'enabled' => $data['enabled'],
-                'model' => $data['model'],
+                'provider' => $data['provider'],
+                'openai_model' => $data['model'],
+                'ollama_model' => $data['ollama_model'],
+                'ollama_base_url' => $data['ollama_base_url'],
+                'ollama_local_only' => $data['ollama_local_only'],
                 'api_key_changed' => $data['api_key'] !== '' || $data['clear_api_key'],
             ]
         );
 
-        return ['errors' => [], 'snapshot' => $snapshot, 'form' => 'openai'];
+        return ['errors' => [], 'snapshot' => $snapshot, 'form' => 'ai'];
     }
 
     private function handleBankUpdate(Request $request, int $userId, array $storedSnapshot): array
@@ -228,11 +266,11 @@ final class SettingsController
 
         $errors = [];
         if ($data['payer_iban'] !== '' && !$this->validators->isValidIbanOrNrb($data['payer_iban'])) {
-            $errors[] = 'Numer rachunku płatnika musi być poprawnym NRB lub IBAN.';
+            $errors[] = 'Numer rachunku platnika musi byc poprawnym NRB lub IBAN.';
         }
 
         if (!$this->validators->isSupportedCurrency($data['default_currency'])) {
-            $errors[] = 'Waluta domyślna musi być jedną z: PLN, EUR, USD.';
+            $errors[] = 'Waluta domyslna musi byc jedna z: PLN, EUR, USD.';
         }
 
         $snapshot = array_replace_recursive($storedSnapshot, [
@@ -269,11 +307,12 @@ final class SettingsController
         return Response::html($this->view->render('settings', [
             'title' => 'Ustawienia',
             'pageTitle' => 'Ustawienia aplikacji',
-            'pageDescription' => 'Tutaj zarządzasz trybem KSeF, danymi OpenAI i danymi płatnika dla przyszłego eksportu przelewów.',
+            'pageDescription' => 'Tutaj zarzadzasz trybem KSeF, providerem AI i danymi platnika dla eksportu przelewow.',
             'alerts' => $alerts,
             'activeForm' => $activeForm,
             'scrollTarget' => $scrollTarget,
             'settings' => $snapshot,
+            'aiProviderLabel' => $this->aiProviderLabel((string) ($snapshot['ai']['provider'] ?? 'ollama')),
             'openAiPresenceLabel' => $this->validators->maskSecretPresence((bool) $snapshot['openai']['api_key_present']),
             'prodTokenPresenceLabel' => $this->validators->maskSecretPresence((bool) $snapshot['ksef']['production']['token_present']),
             'testTokenPresenceLabel' => $this->validators->maskSecretPresence((bool) $snapshot['ksef']['test']['token_present']),
@@ -284,9 +323,18 @@ final class SettingsController
     {
         return match ($form) {
             'ksef' => '#settings-ksef',
-            'openai' => '#settings-openai',
+            'ai' => '#settings-ai',
             'bank' => '#settings-bank',
             default => '',
+        };
+    }
+
+    private function aiProviderLabel(string $provider): string
+    {
+        return match ($provider) {
+            'hybrid' => 'hybrid',
+            'openai' => 'openai',
+            default => 'ollama',
         };
     }
 }

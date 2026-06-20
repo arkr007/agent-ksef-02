@@ -27,6 +27,10 @@ final class ApplicationSettings
                 'name' => (string) $this->config->get('database.name', ''),
                 'username' => (string) $this->config->get('database.username', ''),
             ],
+            'ai' => [
+                'provider' => $this->plainValue($stored, 'ai.provider', (string) $this->config->get('ai.provider', 'ollama')),
+                'available_providers' => $this->config->get('ai.available_providers', ['ollama', 'hybrid', 'openai']),
+            ],
             'ksef' => [
                 'environment' => $this->plainValue($stored, 'ksef.environment', (string) $this->config->get('ksef.environment', 'test')),
                 'context_nip' => $this->plainValue($stored, 'ksef.context_nip', (string) $this->config->get('ksef.context_nip', '')),
@@ -45,9 +49,15 @@ final class ApplicationSettings
                 ],
             ],
             'openai' => [
-                'enabled' => $this->plainValue($stored, 'openai.enabled', $this->config->get('openai.enabled', false) ? '1' : '0') === '1',
                 'model' => $this->plainValue($stored, 'openai.model', (string) $this->config->get('openai.model', 'gpt-5-mini')),
                 'api_key_present' => $this->hasSecretValue($stored, 'openai.api_key', (string) $this->config->get('openai.api_key', '')),
+            ],
+            'ollama' => [
+                'base_url' => $this->plainValue($stored, 'ollama.base_url', (string) $this->config->get('ollama.base_url', 'http://127.0.0.1:11434')),
+                'model' => $this->plainValue($stored, 'ollama.model', (string) $this->config->get('ollama.model', 'qwen2.5vl:7b')),
+                'timeout_seconds' => $this->plainValue($stored, 'ollama.timeout_seconds', (string) $this->config->get('ollama.timeout_seconds', 180)),
+                'keep_alive' => $this->plainValue($stored, 'ollama.keep_alive', (string) $this->config->get('ollama.keep_alive', '15m')),
+                'local_only' => $this->plainValue($stored, 'ollama.local_only', $this->config->get('ollama.local_only', true) ? '1' : '0') === '1',
             ],
             'bank' => [
                 'payer_name' => $this->plainValue($stored, 'bank.payer_name', (string) $this->config->get('bank.payer_name', '')),
@@ -73,10 +83,17 @@ final class ApplicationSettings
         $this->saveOptionalSecret('ksef.test.token', $data['test_token'], $data['clear_test_token']);
     }
 
-    public function saveOpenAi(array $data): void
+    public function saveAi(array $data): void
     {
-        $this->settingsRepository->saveText('openai.enabled', $data['enabled'] ? '1' : '0');
+        $this->settingsRepository->saveText('ai.provider', $data['provider']);
+        $this->settingsRepository->saveText('openai.enabled', in_array($data['provider'], ['hybrid', 'openai'], true) ? '1' : '0');
         $this->settingsRepository->saveText('openai.model', $data['model']);
+        $this->settingsRepository->saveText('ollama.enabled', in_array($data['provider'], ['ollama', 'hybrid'], true) ? '1' : '0');
+        $this->settingsRepository->saveText('ollama.base_url', $data['ollama_base_url']);
+        $this->settingsRepository->saveText('ollama.model', $data['ollama_model']);
+        $this->settingsRepository->saveText('ollama.timeout_seconds', (string) $data['ollama_timeout_seconds']);
+        $this->settingsRepository->saveText('ollama.keep_alive', $data['ollama_keep_alive']);
+        $this->settingsRepository->saveText('ollama.local_only', $data['ollama_local_only'] ? '1' : '0');
 
         $this->saveOptionalSecret('openai.api_key', $data['api_key'], $data['clear_api_key']);
     }

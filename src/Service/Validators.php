@@ -35,6 +35,33 @@ final class Validators
         return in_array($environment, $available, true);
     }
 
+    public function isAllowedAiProvider(string $provider, array $available): bool
+    {
+        return in_array($provider, $available, true);
+    }
+
+    public function isValidHttpUrl(string $value): bool
+    {
+        if (filter_var($value, FILTER_VALIDATE_URL) === false) {
+            return false;
+        }
+
+        $scheme = strtolower((string) parse_url($value, PHP_URL_SCHEME));
+
+        return in_array($scheme, ['http', 'https'], true);
+    }
+
+    public function isLocalHostUrl(string $value): bool
+    {
+        if (!$this->isValidHttpUrl($value)) {
+            return false;
+        }
+
+        $host = strtolower((string) parse_url($value, PHP_URL_HOST));
+
+        return in_array($host, ['127.0.0.1', 'localhost', '::1'], true);
+    }
+
     public function isValidIbanOrNrb(string $value): bool
     {
         $normalized = strtoupper(preg_replace('/\s+/', '', $value) ?? '');

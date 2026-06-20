@@ -11,7 +11,7 @@ final class PdfInvoiceCandidateParser
     public function __construct(
         private PdfInboxAnalysisService $pdfInboxAnalysisService,
         private PdfPageRenderService $pdfPageRenderService,
-        private OpenAiHelper $openAiHelper
+        private DocumentAiRecognizerInterface $documentAiRecognizer
     ) {
     }
 
@@ -109,7 +109,7 @@ final class PdfInvoiceCandidateParser
 
     private function parseWholePdf(array $pageTexts, array $pageImages, array $file, int $pageCount): array
     {
-        $aiAttempt = $this->openAiHelper->recognizePdfDocumentsFromImages(
+        $aiAttempt = $this->documentAiRecognizer->recognizePdfDocumentsFromImages(
             (string) ($file['name'] ?? ''),
             $pageImages,
             $pageTexts

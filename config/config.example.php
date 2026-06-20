@@ -47,10 +47,20 @@ return [
             'private_key_path' => '',
         ],
     ],
+    'ai' => [
+        'provider' => 'ollama',
+        'available_providers' => ['ollama', 'hybrid', 'openai'],
+    ],
     'openai' => [
-        'enabled' => false,
         'api_key' => '',
         'model' => 'gpt-5-mini',
+    ],
+    'ollama' => [
+        'base_url' => 'http://127.0.0.1:11434',
+        'model' => 'qwen2.5vl:7b',
+        'timeout_seconds' => 180,
+        'keep_alive' => '15m',
+        'local_only' => true,
     ],
     'bank' => [
         'payer_name' => '',

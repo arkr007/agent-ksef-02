@@ -6,7 +6,7 @@ namespace App\Service;
 
 use RuntimeException;
 
-final class OpenAiHelper
+final class OpenAiHelper implements DocumentAiRecognizerInterface
 {
     private const RESPONSES_URL = 'https://api.openai.com/v1/responses';
 
@@ -19,7 +19,7 @@ final class OpenAiHelper
     {
         $snapshot = $this->applicationSettings->snapshot();
 
-        return (bool) ($snapshot['openai']['enabled'] ?? false)
+        return trim((string) ($snapshot['openai']['model'] ?? '')) !== ''
             && trim((string) $this->applicationSettings->secretValue('openai.api_key')) !== '';
     }
 
@@ -31,7 +31,7 @@ final class OpenAiHelper
         if (!$this->isReady()) {
             return [
                 'status' => 'disabled',
-                'note' => 'Integracja OpenAI nie jest aktywna albo nie ma zapisanego klucza API.',
+                'note' => 'Integracja OpenAI nie jest gotowa albo nie ma zapisanego klucza API.',
             ];
         }
 
@@ -56,7 +56,7 @@ final class OpenAiHelper
                         'role' => 'system',
                         'content' => [[
                             'type' => 'input_text',
-                            'text' => $this->systemPrompt(),
+                            'text' => InvoiceAiPromptCatalog::systemPrompt(),
                         ]],
                     ],
                     [
@@ -72,7 +72,7 @@ final class OpenAiHelper
 
             return [
                 'status' => 'ok',
-                'note' => 'Rozpoznanie OpenAI dla całego PDF na podstawie obrazów zakończone powodzeniem.',
+                'note' => 'Rozpoznanie OpenAI dla calego PDF zakonczone powodzeniem.',
                 'data' => $decoded,
                 'raw_output' => $outputText,
             ];
@@ -84,74 +84,14 @@ final class OpenAiHelper
         }
     }
 
-    private function systemPrompt(): string
-    {
-        return <<<'PROMPT'
-Analizujesz cały plik PDF zawierający dokumenty kosztowe firmy. Otrzymujesz obrazy kolejnych stron dokumentu, w kolejności od pierwszej do ostatniej.
-
-Zadanie:
-1. Rozpoznaj wszystkie istotne dokumenty księgowe znajdujące się w tym PDF.
-2. Łącz strony należące do tego samego dokumentu, jeśli jedna faktura zajmuje więcej niż jedną stronę.
-3. Dla każdej pozycji ustal:
-- zakres stron,
-- typ dokumentu,
-- wystawcę,
-- numer dokumentu, jeśli da się go odczytać,
-- kwotę brutto,
-- kwotę do zapłaty, jeśli występuje,
-- walutę,
-- datę wystawienia,
-- termin płatności.
-4. Jeśli jakaś strona wygląda na dokument księgowy, ale nie da się jej pewnie przypisać, wpisz ją do `manual_review_pages`.
-5. Zwróć wyłącznie jeden obiekt JSON bez markdownu i bez komentarzy.
-
-Zwróć dokładnie obiekt w tej strukturze:
-{
-  "documents": [
-    {
-      "page_from": 1,
-      "page_to": 1,
-      "source_type": "invoice",
-      "issuer_name": "Nazwa wystawcy",
-      "invoice_number": "FV/123/2026",
-      "gross_amount": "1234.56",
-      "amount_due": "1234.56",
-      "currency": "PLN",
-      "issue_date": "2026-05-12",
-      "due_date": "2026-05-20",
-      "manual_review": false,
-      "note": "krótki opis"
-    }
-  ],
-  "manual_review_pages": [
-    {
-      "page_from": 3,
-      "page_to": 3,
-      "note": "niepewny odczyt dokumentu"
-    }
-  ]
-}
-
-Zasady:
-- source_type: invoice, receipt, payment_confirmation, other
-- kwoty zapisuj jako string z kropką dziesiętną, bez spacji i bez symbolu waluty
-- currency: 3-literowy kod ISO albo null
-- daty zawsze w formacie YYYY-MM-DD albo null
-- page_from i page_to muszą odnosić się do numerów stron wynikających z kolejności obrazów
-- jeśli dokument jest wielostronicowy, zwróć jeden wpis z odpowiednim zakresem stron
-- jeśli masz pewność, że dana strona nie jest istotnym dokumentem księgowym, nie wpisuj jej do `manual_review_pages`
-- jeśli widzisz zarówno kwotę brutto, jak i kwotę do zapłaty, zwróć obie
-PROMPT;
-    }
-
     private function buildVisionUserContent(string $sourceFileName, array $pageImages, array $pageTexts): array
     {
         $content = [[
             'type' => 'input_text',
-            'text' => $this->buildVisionPromptIntro($sourceFileName, $pageImages, $pageTexts),
+            'text' => InvoiceAiPromptCatalog::promptIntro($sourceFileName, $pageImages, $pageTexts),
         ]];
 
-        foreach (array_values($pageImages) as $index => $pageImage) {
+        foreach (array_values($pageImages) as $pageImage) {
             if (!is_array($pageImage)) {
                 continue;
             }
@@ -171,45 +111,11 @@ PROMPT;
         return $content;
     }
 
-    private function buildVisionPromptIntro(string $sourceFileName, array $pageImages, array $pageTexts): string
-    {
-        $pageCount = count($pageImages);
-        $lines = [
-            'Plik źródłowy: ' . $sourceFileName,
-            'Za tym komunikatem znajduje się ' . $pageCount . ' obrazów stron PDF w kolejności od strony 1 do strony ' . $pageCount . '.',
-            'Najważniejszym źródłem informacji są obrazy stron.',
-            'Jeśli pomocniczy skrót tekstu strony jest dostępny, traktuj go tylko jako wsparcie, a nie źródło nadrzędne.',
-        ];
-
-        foreach (array_values($pageTexts) as $index => $pageText) {
-            $snippet = $this->pageTextSnippet(is_string($pageText) ? $pageText : '');
-            if ($snippet === null) {
-                continue;
-            }
-
-            $lines[] = 'Pomocniczy skrót strony ' . ($index + 1) . ': ' . $snippet;
-        }
-
-        return implode("\n", $lines);
-    }
-
-    private function pageTextSnippet(string $pageText): ?string
-    {
-        $trimmed = trim($pageText);
-        if ($trimmed === '') {
-            return null;
-        }
-
-        $normalized = preg_replace('/\s+/', ' ', $trimmed) ?? $trimmed;
-
-        return mb_substr($normalized, 0, 240);
-    }
-
     private function imageDataUrl(string $imagePath): string
     {
         $content = file_get_contents($imagePath);
         if ($content === false || $content === '') {
-            throw new RuntimeException('Nie udało się odczytać obrazu strony PDF do wysłania do OpenAI.');
+            throw new RuntimeException('Nie udalo sie odczytac obrazu strony PDF do wyslania do OpenAI.');
         }
 
         $extension = strtolower(pathinfo($imagePath, PATHINFO_EXTENSION));
@@ -225,17 +131,17 @@ PROMPT;
     private function postJson(string $url, string $apiKey, array $payload): array
     {
         if (!function_exists('curl_init')) {
-            throw new RuntimeException('PHP nie ma włączonego rozszerzenia cURL, więc nie może połączyć się z OpenAI API.');
+            throw new RuntimeException('PHP nie ma wlaczonego rozszerzenia cURL, wiec nie moze polaczyc sie z OpenAI API.');
         }
 
         $jsonPayload = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         if (!is_string($jsonPayload)) {
-            throw new RuntimeException('Nie udało się przygotować zapytania do OpenAI API.');
+            throw new RuntimeException('Nie udalo sie przygotowac zapytania do OpenAI API.');
         }
 
         $ch = curl_init($url);
         if ($ch === false) {
-            throw new RuntimeException('Nie udało się zainicjować połączenia z OpenAI API.');
+            throw new RuntimeException('Nie udalo sie zainicjowac polaczenia z OpenAI API.');
         }
 
         curl_setopt_array($ch, [
@@ -256,18 +162,18 @@ PROMPT;
         curl_close($ch);
 
         if (!is_string($rawResponse) || $rawResponse === '') {
-            $message = $curlError !== '' ? $curlError : 'Pusta odpowiedź z OpenAI API.';
-            throw new RuntimeException('Błąd komunikacji z OpenAI API: ' . $message);
+            $message = $curlError !== '' ? $curlError : 'Pusta odpowiedz z OpenAI API.';
+            throw new RuntimeException('Blad komunikacji z OpenAI API: ' . $message);
         }
 
         $decoded = json_decode($rawResponse, true);
         if (!is_array($decoded)) {
-            throw new RuntimeException('OpenAI API zwróciło odpowiedź, której nie udało się zdekodować jako JSON.');
+            throw new RuntimeException('OpenAI API zwrocilo odpowiedz, ktorej nie udalo sie zdekodowac jako JSON.');
         }
 
         if ($httpCode >= 400) {
-            $message = (string) ($decoded['error']['message'] ?? 'Nieznany błąd OpenAI API.');
-            throw new RuntimeException('OpenAI API zwróciło HTTP ' . $httpCode . ': ' . $message);
+            $message = (string) ($decoded['error']['message'] ?? 'Nieznany blad OpenAI API.');
+            throw new RuntimeException('OpenAI API zwrocilo HTTP ' . $httpCode . ': ' . $message);
         }
 
         return $decoded;
@@ -297,7 +203,7 @@ PROMPT;
             }
         }
 
-        throw new RuntimeException('OpenAI API nie zwróciło czytelnej odpowiedzi tekstowej.');
+        throw new RuntimeException('OpenAI API nie zwrocilo czytelnej odpowiedzi tekstowej.');
     }
 
     private function decodeJsonPayload(string $outputText): array
@@ -315,7 +221,7 @@ PROMPT;
 
         $decoded = json_decode($clean, true);
         if (!is_array($decoded)) {
-            throw new RuntimeException('OpenAI zwróciło odpowiedź, ale nie była ona poprawnym JSON-em.');
+            throw new RuntimeException('OpenAI zwrocilo odpowiedz, ale nie byla ona poprawnym JSON-em.');
         }
 
         return $decoded;
