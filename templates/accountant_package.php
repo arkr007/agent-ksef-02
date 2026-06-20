@@ -381,20 +381,6 @@ $previewRows = static fn (array $rows): array => array_slice(array_values($rows)
                 <input type="hidden" name="_csrf" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?>">
                 <input type="hidden" name="selected_month" value="<?= htmlspecialchars($selectedMonth, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?>">
 
-                <?php if (!empty($requiresRemoteAiConfirmation)): ?>
-                    <div class="alert alert-warning">
-                        <strong>UWAGA</strong>
-                        <p>Aktywny tryb AI to <?= htmlspecialchars((string) $aiProvider, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?>. Uruchomienie tego kroku moze wyslac dane z faktur poza lokalna stacje robocza.</p>
-                    </div>
-
-                    <label class="checkbox-line">
-                        <input type="checkbox" name="acknowledge_remote_ai" value="1">
-                        Potwierdzam uruchomienie analizy AI poza lokalna stacja
-                    </label>
-                <?php else: ?>
-                    <p class="small-note">Aktywny tryb AI: <strong><?= htmlspecialchars((string) $aiProvider, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?></strong>. Dane pozostaja na lokalnej stacji.</p>
-                <?php endif; ?>
-
                 <div class="form-actions">
                     <button type="submit" class="button">Sprawdź warstwę tekstową PDF</button>
                 </div>
@@ -520,6 +506,20 @@ $previewRows = static fn (array $rows): array => array_slice(array_values($rows)
             <form method="post" action="<?= htmlspecialchars($baseUrl . '/accountant-package/parse-pdf-candidates', ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?>" class="settings-form">
                 <input type="hidden" name="_csrf" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?>">
                 <input type="hidden" name="selected_month" value="<?= htmlspecialchars($selectedMonth, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?>">
+
+                <?php if (!empty($requiresRemoteAiConfirmation)): ?>
+                    <div class="alert alert-warning">
+                        <strong>UWAGA</strong>
+                        <p>Aktywny tryb AI to <?= htmlspecialchars((string) $aiProvider, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?>. Uruchomienie tego kroku moze wyslac dane z faktur poza lokalna stacje robocza.</p>
+                    </div>
+
+                    <label class="checkbox-line">
+                        <input type="checkbox" name="acknowledge_remote_ai" value="1">
+                        Potwierdzam uruchomienie analizy AI poza lokalna stacja
+                    </label>
+                <?php else: ?>
+                    <p class="small-note">Aktywny tryb AI: <strong><?= htmlspecialchars((string) $aiProvider, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?></strong>. Dane pozostaja na lokalnej stacji.</p>
+                <?php endif; ?>
 
                 <div class="form-actions">
                     <button type="submit" class="button">Rozpoznaj kandydatów z PDF tekstowych</button>
