@@ -268,20 +268,48 @@ a {
   padding: 16px 48px 16px 18px;
 }
 
+.alert strong {
+  display: block;
+  margin-bottom: 8px;
+}
+
+.alert p {
+  margin: 0;
+}
+
 .alert + .alert {
   margin-top: 12px;
 }
 
 .alert-info {
   border-left: 5px solid var(--accent);
+  background: #fff7ef;
 }
 
 .alert-warning {
   border-left: 5px solid var(--warning);
+  border-color: #b86500;
+  background: linear-gradient(135deg, rgba(255, 170, 0, 0.26), rgba(255, 243, 224, 0.98));
+  box-shadow: 0 18px 40px rgba(184, 101, 0, 0.18);
+}
+
+.alert-warning strong,
+.alert-warning p,
+.alert-warning button {
+  color: #6a2d00;
 }
 
 .alert-error {
   border-left: 5px solid var(--error);
+  border-color: #b42318;
+  background: linear-gradient(135deg, rgba(244, 67, 54, 0.24), rgba(255, 238, 238, 0.98));
+  box-shadow: 0 18px 40px rgba(180, 35, 24, 0.18);
+}
+
+.alert-error strong,
+.alert-error p,
+.alert-error button {
+  color: #7a1c17;
 }
 
 .alert button {
