@@ -96,6 +96,28 @@ W trakcie prac zmieniono podejscie do PDF:
 - potem dzielenie na strony,
 - potem rozpoznawanie przez `OpenAI` na podstawie obrazow stron.
 
+## Zasada docelowego interfejsu
+
+To jest wazne zalozenie na dalsze etapy projektu:
+
+- interfejs ma byc docelowo uporzadkowany pod prace uzytkownika koncowego,
+- widoki debugowe i posrednie zestawienia nie powinny dominowac ekranu,
+- uzytkownik ma przede wszystkim dostac finalny rezultat pracy modulu,
+- tabele techniczne, wyniki parsowania i szczegoly diagnostyczne maja byc:
+  - ukryte,
+  - zwijane,
+  - przeniesione do sekcji zaawansowanej,
+  - albo calkowicie usuniete z glownego przebiegu pracy.
+
+Przyklad uzgodnionego kierunku:
+
+- jesli finalna wartoscia dla uzytkownika jest plik `CSV`, to ekran powinien koncentrowac sie na:
+  - statusie wykonania,
+  - liczbie rozpoznanych lub brakujacych dokumentow,
+  - ewentualnych pozycjach wymagajacych reakcji,
+  - przycisku pobrania wyniku,
+- a nie na pelnym debugowym widoku posredniego parsowania.
+
 ## Aktualny stan AI
 
 ### Providerzy AI
@@ -251,6 +273,51 @@ To oznacza, ze po ustabilizowaniu lokalnego AI warto uporzadkowac:
 2. wspolny test gotowosci providera,
 3. wspolne logowanie bledow AI,
 4. wspolny sposob oznaczania fallbacku i recznej weryfikacji.
+
+### Kierunek 5 - porzadkowanie UI/UX i ukrycie widokow debugowych
+
+To jest osobna sciezka projektowa obejmujaca cala aplikacje, a nie tylko jeden modul.
+
+Cel:
+
+- uproscic ekrany tak, aby uzytkownik widzial przede wszystkim wynik koncowy i nastepny krok,
+- ograniczyc widocznosc danych pomocniczych, diagnostycznych i developerskich.
+
+Najwazniejsze zalozenia:
+
+1. Widoki posrednie nie sa celem samym w sobie.
+2. Tabele z surowym wynikiem parsowania maja byc domyslnie ukryte, zwijane albo przeniesione do sekcji technicznej.
+3. Ekrany powinny konczyc sie mozliwie prostym rezultatem:
+   - pobierz `CSV`,
+   - pobierz `XML`,
+   - sprawdz liste brakow,
+   - wykonaj reczna weryfikacje tylko tam, gdzie to konieczne.
+4. Dane debugowe powinny byc dostepne dopiero wtedy, gdy sa potrzebne do diagnozy bledu albo slabego rozpoznania.
+
+Przyklady miejsc do przegladu przy wznowieniu tej sciezki:
+
+- `templates/accountant_package.php`
+- `templates/accounting_compare.php`
+- `templates/ksef_fetch.php`
+- `templates/bank_import.php`
+- `templates/settings.php`
+
+Rekomendowana kolejnosc prac:
+
+1. Zidentyfikowac dla kazdego modulu:
+   - finalny artefakt dla uzytkownika,
+   - informacje obowiazkowe,
+   - informacje opcjonalne,
+   - informacje czysto debugowe.
+2. Wprowadzic wspolny wzorzec:
+   - sekcja wyniku glownego,
+   - sekcja ostrzezen i pozycji do reakcji,
+   - sekcja szczegolow technicznych zwijana domyslnie.
+3. Ograniczyc lub usunac z glownego widoku:
+   - pelne tabele posrednich wynikow parsowania,
+   - nadmiarowe opisy techniczne,
+   - dane przydatne glownie przy developmentcie.
+4. Zostawic diagnostyke, ale dostepna swiadomie, nie jako glowna tresc ekranu.
 
 ## Rekomendowany punkt powrotu po przerwie
 
