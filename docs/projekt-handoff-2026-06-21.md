@@ -10,6 +10,36 @@ Najwazniejsze zalozenie na ten moment:
 - po kazdym etapie uzytkownik testuje funkcje i akceptuje przejscie dalej,
 - commity i push-e maja byc robione na biezaco, z opisami po polsku.
 
+## Zasady operacyjne wspolpracy
+
+Te zasady obowiazuja przy dalszym prowadzeniu projektu:
+
+### 1. Etapowosc pracy
+
+- kazdy wiekszy zakres prac ma byc realizowany etapami,
+- po zakonczeniu etapu aplikacja trafia do testow uzytkownika,
+- przejscie do kolejnego etapu nastepuje dopiero po akceptacji albo po naniesieniu poprawek i ponownej akceptacji.
+
+### 2. Handoffy i ochrona kontekstu
+
+- w projekcie maja byc regularnie przygotowywane handoffy, zeby nie dopuscic do utraty kontekstu przy automatycznym skracaniu lub kompresowaniu kontekstu rozmowy,
+- zanim dojdzie do takiego momentu, nalezy przygotowac nowy handoff zapisany w katalogu projektu,
+- przed zapisaniem lub finalnym uznaniem handoffu nalezy pokazac jego tresc uzytkownikowi do akceptacji albo poprawek,
+- handoff ma obejmowac:
+  - stan funkcji,
+  - ostatnie decyzje,
+  - aktualne blokery,
+  - nastepne logiczne kroki,
+  - istotne pliki i branche.
+
+### 3. Repozytorium i GitHub
+
+- repozytorium ma byc utrzymywane na biezaco, a zmiany nie powinny pozostawac dlugo tylko lokalnie,
+- po zakonczonych krokach lub istotnych porcjach pracy nalezy wykonywac `commit` i `push`,
+- opisy commitow maja byc zawsze po polsku,
+- trzeba dbac, aby branch roboczy odzwierciedlal rzeczywisty stan prac,
+- GitHub ma byc traktowany jako biezace, stale miejsce utrwalania postepu projektu, a nie tylko archiwum na koniec.
+
 ## Repo i branch
 
 - repo: `arkr007/agent-ksef-02`
