@@ -56,6 +56,15 @@ final class OllamaHelper implements DocumentAiRecognizerInterface
 
         try {
             @set_time_limit(max(300, $timeout + 30));
+            $catalog = $this->fetchModelCatalog($baseUrl, 15);
+            $selectedModel = $this->findModelEntry($catalog, $model);
+            if ($selectedModel === null) {
+                throw new RuntimeException('Wybrany model Ollama nie jest zainstalowany lokalnie.');
+            }
+
+            if (!$this->modelSupportsVision($selectedModel)) {
+                throw new RuntimeException('Wybrany model Ollama nie obsluguje obrazow (vision / multimodal). Wybierz model vision.');
+            }
 
             $payload = [
                 'model' => $model,
@@ -130,29 +139,27 @@ final class OllamaHelper implements DocumentAiRecognizerInterface
         }
 
         try {
-            $response = $this->getJson(rtrim($baseUrl, '/') . '/api/tags', 15);
-            $models = array_values((array) ($response['models'] ?? []));
-            $availableNames = [];
-            foreach ($models as $entry) {
-                if (!is_array($entry)) {
-                    continue;
-                }
+            $models = $this->fetchModelCatalog($baseUrl, 15);
+            $availableNames = array_values(array_map(
+                static fn (array $entry): string => trim((string) ($entry['name'] ?? '')),
+                $models
+            ));
+            $availableNames = array_values(array_filter($availableNames, static fn (string $name): bool => $name !== ''));
 
-                $name = trim((string) ($entry['name'] ?? ''));
-                if ($name !== '') {
-                    $availableNames[] = $name;
-                }
-            }
-
-            $modelInstalled = in_array($model, $availableNames, true);
+            $modelEntry = $this->findModelEntry($models, $model);
+            $modelInstalled = $modelEntry !== null;
+            $visionSupported = $modelEntry !== null ? $this->modelSupportsVision($modelEntry) : false;
 
             return [
-                'status' => $modelInstalled ? 'ok' : 'warning',
-                'message' => $modelInstalled
-                    ? 'Polaczenie z Ollama dziala, a wybrany model jest zainstalowany.'
-                    : 'Polaczenie z Ollama dziala, ale wybrany model nie jest widoczny na liscie zainstalowanych modeli.',
+                'status' => !$modelInstalled ? 'warning' : ($visionSupported ? 'ok' : 'warning'),
+                'message' => !$modelInstalled
+                    ? 'Polaczenie z Ollama dziala, ale wybrany model nie jest widoczny na liscie zainstalowanych modeli.'
+                    : ($visionSupported
+                        ? 'Polaczenie z Ollama dziala, a wybrany model obsluguje obrazy.'
+                        : 'Polaczenie z Ollama dziala, ale wybrany model nie obsluguje obrazow.'),
                 'available_models' => $availableNames,
                 'model_installed' => $modelInstalled,
+                'vision_supported' => $visionSupported,
             ];
         } catch (\Throwable $exception) {
             return [
@@ -239,6 +246,46 @@ final class OllamaHelper implements DocumentAiRecognizerInterface
         }
 
         return $decoded;
+    }
+
+    private function fetchModelCatalog(string $baseUrl, int $timeout): array
+    {
+        $response = $this->getJson(rtrim($baseUrl, '/') . '/api/tags', $timeout);
+        $models = array_values(array_filter(
+            (array) ($response['models'] ?? []),
+            static fn (mixed $entry): bool => is_array($entry)
+        ));
+
+        return $models;
+    }
+
+    private function findModelEntry(array $models, string $modelName): ?array
+    {
+        $normalizedTarget = trim($modelName);
+        foreach ($models as $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+
+            $name = trim((string) ($entry['name'] ?? ''));
+            $model = trim((string) ($entry['model'] ?? ''));
+            if ($normalizedTarget !== '' && ($normalizedTarget === $name || $normalizedTarget === $model)) {
+                return $entry;
+            }
+        }
+
+        return null;
+    }
+
+    private function modelSupportsVision(array $modelEntry): bool
+    {
+        $capabilities = array_values(array_filter(
+            (array) ($modelEntry['capabilities'] ?? []),
+            'is_string'
+        ));
+        $capabilities = array_map(static fn (string $value): string => strtolower(trim($value)), $capabilities);
+
+        return in_array('vision', $capabilities, true);
     }
 
     private function getJson(string $url, int $timeout): array
