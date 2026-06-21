@@ -9,32 +9,60 @@ final class InvoiceAiPromptCatalog
     public static function systemPrompt(): string
     {
         return <<<'PROMPT'
-Analyze the full PDF document containing cost documents for accounting.
-You receive page images in the exact order from page 1 to the last page.
+Analizujesz caly plik PDF zawierajacy dokumenty kosztowe firmy. Otrzymujesz obrazy kolejnych stron dokumentu, w kolejnosci od pierwszej do ostatniej.
 
-Task:
-1. Detect all relevant accounting documents in the PDF.
-2. Merge consecutive pages that belong to the same document.
-3. For each document return:
-- page range,
-- document type,
-- issuer,
-- document number if visible,
-- gross amount,
-- amount due if visible,
-- currency,
-- issue date,
-- due date.
-4. If a page looks relevant but cannot be classified with confidence, add it to manual_review_pages.
-5. Return only one JSON object and no markdown.
+Zadanie:
+1. Rozpoznaj wszystkie istotne dokumenty ksiegowe znajdujace sie w tym PDF.
+2. Lacz strony nalezace do tego samego dokumentu, jesli jedna faktura zajmuje wiecej niz jedna strone.
+3. Dla kazdej pozycji ustal:
+- zakres stron,
+- typ dokumentu,
+- wystawce,
+- numer dokumentu, jesli da sie go odczytac,
+- kwote brutto,
+- kwote do zaplaty, jesli wystepuje,
+- walute,
+- date wystawienia,
+- termin platnosci.
+4. Jesli jakas strona wyglada na dokument ksiegowy, ale nie da sie jej pewnie przypisac, wpisz ja do `manual_review_pages`.
+5. Zwroc wylacznie jeden obiekt JSON bez markdownu i bez komentarzy.
 
-Rules:
+Zwroc dokladnie obiekt w tej strukturze:
+{
+  "documents": [
+    {
+      "page_from": 1,
+      "page_to": 1,
+      "source_type": "invoice",
+      "issuer_name": "Nazwa wystawcy",
+      "invoice_number": "FV/123/2026",
+      "gross_amount": "1234.56",
+      "amount_due": "1234.56",
+      "currency": "PLN",
+      "issue_date": "2026-05-12",
+      "due_date": "2026-05-20",
+      "manual_review": false,
+      "note": "krotki opis"
+    }
+  ],
+  "manual_review_pages": [
+    {
+      "page_from": 3,
+      "page_to": 3,
+      "note": "niepewny odczyt dokumentu"
+    }
+  ]
+}
+
+Zasady:
 - source_type: invoice, receipt, payment_confirmation, other
-- money values must be strings with a dot decimal separator and no spaces
-- currency must be a 3-letter ISO code or null
-- dates must use YYYY-MM-DD or null
-- if the document has many pages, return one item with page_from and page_to
-- if both gross amount and amount due are present, return both
+- kwoty zapisuj jako string z kropka dziesietna, bez spacji i bez symbolu waluty
+- currency: 3-literowy kod ISO albo null
+- daty zawsze w formacie YYYY-MM-DD albo null
+- page_from i page_to musza odnosic sie do numerow stron wynikajacych z kolejnosci obrazow
+- jesli dokument jest wielostronicowy, zwroc jeden wpis z odpowiednim zakresem stron
+- jesli masz pewnosc, ze dana strona nie jest istotnym dokumentem ksiegowym, nie wpisuj jej do `manual_review_pages`
+- jesli widzisz zarowno kwote brutto, jak i kwote do zaplaty, zwroc obie
 PROMPT;
     }
 
@@ -104,11 +132,10 @@ PROMPT;
     {
         $pageCount = count($pageImages);
         $lines = [
-            'Source file: ' . $sourceFileName,
-            'The next input contains ' . $pageCount . ' page images ordered from page 1 to page ' . $pageCount . '.',
-            'Images are the primary source of truth.',
-            'Any page text snippets are only supporting hints.',
-            'Return a JSON object matching the provided schema.',
+            'Plik zrodlowy: ' . $sourceFileName,
+            'Za tym komunikatem znajduje sie ' . $pageCount . ' obrazow stron PDF w kolejnosci od strony 1 do strony ' . $pageCount . '.',
+            'Najwazniejszym zrodlem informacji sa obrazy stron.',
+            'Jesli pomocniczy skrot tekstu strony jest dostepny, traktuj go tylko jako wsparcie, a nie zrodlo nadrzedne.',
         ];
 
         foreach (array_values($pageTexts) as $index => $pageText) {
@@ -117,7 +144,7 @@ PROMPT;
                 continue;
             }
 
-            $lines[] = 'Page ' . ($index + 1) . ' helper text: ' . $snippet;
+            $lines[] = 'Pomocniczy skrot strony ' . ($index + 1) . ': ' . $snippet;
         }
 
         return implode("\n", $lines);
