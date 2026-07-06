@@ -72,6 +72,9 @@ return [
         'document_inbox_dir' => '',
         'recurring_issuers_csv' => '',
     ],
+    'local_helper' => [
+        'base_url' => 'http://127.0.0.1:8765',
+    ],
     'paths' => [
         'uploads' => STORAGE_PATH . '/uploads',
         'exports' => STORAGE_PATH . '/exports',

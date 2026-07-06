@@ -56,7 +56,7 @@
             </article>
         </section>
 
-        <article class="panel" id="settings-local-paths">
+        <article class="panel" id="settings-local-paths" data-local-path-helper data-helper-base-url="<?= htmlspecialchars((string) $config->get('local_helper.base_url', 'http://127.0.0.1:8765'), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?>">
             <h2>Lokalizacje folderow lokalnych</h2>
             <?php if (($activeForm ?? '') === 'local_paths'): ?>
                 <?php foreach (($alerts ?? []) as $index => $alert): ?>
@@ -68,6 +68,12 @@
                 <?php endforeach; ?>
             <?php endif; ?>
 
+            <div class="alert alert-info">
+                <strong>HELPER LOKALNY</strong>
+                <p>Jesli nie chcesz wpisywac sciezek recznie, uruchom lokalny helper Windows i wybieraj katalog oraz plik z okna systemowego.</p>
+                <p class="small-note" data-helper-status>Helper nie byl jeszcze sprawdzany.</p>
+            </div>
+
             <form method="post" action="<?= htmlspecialchars($config->url('/settings'), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?>" class="settings-form" autocomplete="off">
                 <input type="hidden" name="_csrf" value="<?= htmlspecialchars((string) $csrfToken, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?>">
                 <input type="hidden" name="form_name" value="local_paths">
@@ -77,11 +83,17 @@
                         <label for="document_inbox_dir">Katalog lokalnych PDF</label>
                         <input id="document_inbox_dir" name="document_inbox_dir" type="text" value="<?= htmlspecialchars((string) ($settings['local_paths']['document_inbox_dir'] ?? ''), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?>">
                         <p class="small-note">To katalog, z ktorego modul "Pakiet dla ksiegowej" czyta faktury PDF z biezacej stacji roboczej.</p>
+                        <div class="form-actions">
+                            <button class="button button-secondary" type="button" data-helper-action="pick-folder" data-target-input="#document_inbox_dir">Wybierz folder</button>
+                        </div>
                     </div>
                     <div class="form-field">
                         <label for="recurring_issuers_csv">Plik listy stalych wystawcow</label>
                         <input id="recurring_issuers_csv" name="recurring_issuers_csv" type="text" value="<?= htmlspecialchars((string) ($settings['local_paths']['recurring_issuers_csv'] ?? ''), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?>">
                         <p class="small-note">Wskaz tutaj plik `stali_wystawcy.csv`, domyslnie w podkatalogu `rob`.</p>
+                        <div class="form-actions">
+                            <button class="button button-secondary" type="button" data-helper-action="pick-csv" data-target-input="#recurring_issuers_csv">Wybierz plik CSV</button>
+                        </div>
                     </div>
                 </div>
 
