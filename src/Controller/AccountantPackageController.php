@@ -16,7 +16,6 @@ use App\Service\CsvExporter;
 use App\Service\DocumentInboxCatalogService;
 use App\Service\InvoiceMapper;
 use App\Service\KsefClient;
-use App\Service\PdfInboxAnalysisService;
 use App\Service\PdfInvoiceCandidateParser;
 use App\Service\RecurringIssuerCatalogService;
 use Throwable;
@@ -39,7 +38,6 @@ final class AccountantPackageController
         private CsvExporter $csvExporter,
         private RecurringIssuerCatalogService $recurringIssuerCatalogService,
         private DocumentInboxCatalogService $documentInboxCatalogService,
-        private PdfInboxAnalysisService $pdfInboxAnalysisService,
         private AccountantPackageSummaryService $accountantPackageSummaryService,
         private PdfInvoiceCandidateParser $pdfInvoiceCandidateParser
     ) {
@@ -47,6 +45,8 @@ final class AccountantPackageController
 
     public function index(Request $request): Response
     {
+        unset($request);
+
         $guard = $this->auth->guard();
         if ($guard instanceof Response) {
             return $guard;
@@ -58,24 +58,13 @@ final class AccountantPackageController
         }
 
         $userId = (int) $user['id'];
-        $alerts = [[
-            'type' => 'info',
-            'message' => 'Krok 1 gotowy: ekran, routing i szkielet modułu są przygotowane. W kolejnych krokach dojdzie odczyt CSV, PDF i KSeF.',
-        ]];
         $catalog = null;
         $documentCatalog = null;
+        $alerts = [];
 
         try {
             $catalog = $this->recurringIssuerCatalogService->loadCatalog();
-            $alerts[] = [
-                'type' => 'info',
-                'message' => sprintf(
-                    'Krok 2 gotowy: wczytano %d stałych wystawców i %d oczekiwanych faktur miesięcznych.',
-                    (int) ($catalog['summary']['issuer_count'] ?? 0),
-                    (int) ($catalog['summary']['expected_invoice_count'] ?? 0)
-                ),
-            ];
-        } catch (\Throwable $exception) {
+        } catch (Throwable $exception) {
             $alerts[] = [
                 'type' => 'warning',
                 'message' => $exception->getMessage(),
@@ -84,14 +73,6 @@ final class AccountantPackageController
 
         try {
             $documentCatalog = $this->documentInboxCatalogService->loadCatalog();
-            $alerts[] = [
-                'type' => 'info',
-                'message' => sprintf(
-                    'Krok 4 gotowy: wykryto %d plików PDF i %d innych plików w lokalnym folderze dokumentów.',
-                    (int) ($documentCatalog['summary']['pdf_count'] ?? 0),
-                    (int) ($documentCatalog['summary']['other_file_count'] ?? 0)
-                ),
-            ];
         } catch (Throwable $exception) {
             $alerts[] = [
                 'type' => 'warning',
@@ -99,24 +80,17 @@ final class AccountantPackageController
             ];
         }
 
-        $selectedMonth = trim((string) $request->query('ksef_month', ''));
-        if ($selectedMonth === '') {
-            $sessionPackage = $this->currentKsefPackage($userId);
-            $selectedMonth = is_array($sessionPackage) && isset($sessionPackage['selected_month'])
-                ? (string) $sessionPackage['selected_month']
-                : date('Y-m');
-        }
-
         return $this->renderPage(
             $userId,
             alerts: $alerts,
             catalog: $catalog,
             documentCatalog: $documentCatalog,
-            selectedMonth: $selectedMonth
+            selectedMonth: '',
+            checklistState: $this->emptyChecklistState()
         );
     }
 
-    public function fetchKsef(Request $request): Response
+    public function run(Request $request): Response
     {
         $guard = $this->auth->guard();
         if ($guard instanceof Response) {
@@ -130,6 +104,11 @@ final class AccountantPackageController
 
         $userId = (int) $user['id'];
         $selectedMonth = trim((string) $request->input('ksef_month'));
+        $checklistState = [
+            'confirm_pdf_ready' => $request->input('confirm_pdf_ready') === '1',
+            'confirm_csv_ready' => $request->input('confirm_csv_ready') === '1',
+            'acknowledge_remote_ai' => $request->input('acknowledge_remote_ai') === '1',
+        ];
         $catalog = null;
         $documentCatalog = null;
         $alerts = [];
@@ -153,59 +132,116 @@ final class AccountantPackageController
         }
 
         if (!$request->isMethod('POST') || !$this->csrf->validate((string) $request->input('_csrf'))) {
-            $alerts[] = [
-                'type' => 'error',
-                'message' => 'Nieprawidłowy token CSRF. Odśwież formularz i spróbuj ponownie.',
-            ];
-
             return $this->renderPage(
                 $userId,
-                alerts: $alerts,
+                alerts: array_merge($alerts, [[
+                    'type' => 'error',
+                    'message' => 'Nieprawidlowy token CSRF. Odswiez formularz i sprobuj ponownie.',
+                ]]),
                 catalog: $catalog,
                 documentCatalog: $documentCatalog,
-                selectedMonth: $selectedMonth !== '' ? $selectedMonth : date('Y-m'),
-                scrollTarget: '#accountant-package-ksef-form'
+                selectedMonth: $selectedMonth,
+                checklistState: $checklistState,
+                scrollTarget: '#accountant-package-checklist'
             );
+        }
+
+        if (!$checklistState['confirm_pdf_ready']) {
+            $alerts[] = [
+                'type' => 'error',
+                'message' => 'Potwierdz, ze faktury PDF sa juz wgrane do katalogu roboczego.',
+            ];
+        }
+
+        if (!$checklistState['confirm_csv_ready']) {
+            $alerts[] = [
+                'type' => 'error',
+                'message' => 'Potwierdz, ze lista stalych wystawcow jest juz wgrana do katalogu roboczego.',
+            ];
         }
 
         $monthRange = $this->resolveMonthRange($selectedMonth);
         if ($monthRange === null) {
             $alerts[] = [
                 'type' => 'error',
-                'message' => 'Wybierz poprawny miesiąc w formacie RRRR-MM.',
+                'message' => 'Wybierz poprawny miesiac do pobrania faktur z KSeF.',
             ];
+        }
 
+        $aiProvider = $this->activeAiProvider();
+        if (
+            in_array($aiProvider, self::REMOTE_AI_PROVIDERS, true)
+            && !$checklistState['acknowledge_remote_ai']
+        ) {
+            $alerts[] = [
+                'type' => 'error',
+                'message' => 'Aktywny tryb AI to ' . $aiProvider . '. Potwierdz zgode na przetwarzanie danych poza lokalna stacja, aby uruchomic funkcje.',
+            ];
+        }
+
+        if ($catalog === null) {
+            $alerts[] = [
+                'type' => 'error',
+                'message' => 'Nie udalo sie wczytac listy stalych wystawcow z pliku CSV.',
+            ];
+        }
+
+        if ($documentCatalog === null) {
+            $alerts[] = [
+                'type' => 'error',
+                'message' => 'Nie udalo sie odczytac lokalnego katalogu z fakturami PDF.',
+            ];
+        }
+
+        $pdfFiles = $documentCatalog !== null
+            ? array_values((array) ($documentCatalog['pdf_files'] ?? []))
+            : [];
+
+        if ($documentCatalog !== null && $pdfFiles === []) {
+            $alerts[] = [
+                'type' => 'error',
+                'message' => 'W katalogu roboczym nie ma plikow PDF do uwzglednienia w pakiecie.',
+            ];
+        }
+
+        if ($alerts !== []) {
             return $this->renderPage(
                 $userId,
                 alerts: $alerts,
                 catalog: $catalog,
                 documentCatalog: $documentCatalog,
                 selectedMonth: $selectedMonth,
-                scrollTarget: '#accountant-package-ksef-form'
+                checklistState: $checklistState,
+                scrollTarget: '#accountant-package-checklist'
             );
         }
 
         try {
-            $package = $this->buildKsefPackage($userId, $monthRange['year'], $monthRange['month']);
-            $this->storeKsefPackage($package);
+            $ksefPackage = $this->buildKsefPackage($userId, (int) $monthRange['year'], (int) $monthRange['month']);
+            $pdfCandidatesPackage = $this->pdfInvoiceCandidateParser->parseFiles($pdfFiles);
 
-            $alerts[] = [
-                'type' => 'info',
-                'message' => sprintf(
-                    'Krok 3 gotowy: pobrano %d faktur kosztowych KSeF dla miesiąca %s.',
-                    (int) ($package['summary']['invoice_count'] ?? 0),
-                    $selectedMonth
-                ),
-            ];
+            $this->storeKsefPackage($ksefPackage);
+            $this->storePdfCandidatesPackage($userId, $pdfCandidatesPackage);
+            $this->clearPdfAnalysisPackage();
 
             return $this->renderPage(
                 $userId,
-                alerts: $alerts,
+                alerts: array_merge($alerts, [[
+                    'type' => 'info',
+                    'message' => sprintf(
+                        'Zestawienie zostalo wygenerowane. Pobrano %d faktur KSeF i rozpoznano %d dokumentow z PDF dla miesiaca %s.',
+                        (int) ($ksefPackage['summary']['invoice_count'] ?? 0),
+                        (int) ($pdfCandidatesPackage['summary']['parsed_document_count'] ?? 0),
+                        $selectedMonth
+                    ),
+                ]]),
                 catalog: $catalog,
                 documentCatalog: $documentCatalog,
-                ksefPackage: $package,
-                selectedMonth: $selectedMonth,
-                scrollTarget: '#accountant-package-ksef-results'
+                ksefPackage: $ksefPackage,
+                pdfCandidatesPackage: $pdfCandidatesPackage,
+                selectedMonth: '',
+                checklistState: $this->emptyChecklistState(),
+                scrollTarget: '#accountant-package-summary'
             );
         } catch (Throwable $exception) {
             return $this->renderPage(
@@ -217,220 +253,10 @@ final class AccountantPackageController
                 catalog: $catalog,
                 documentCatalog: $documentCatalog,
                 selectedMonth: $selectedMonth,
-                scrollTarget: '#accountant-package-ksef-form'
+                checklistState: $checklistState,
+                scrollTarget: '#accountant-package-checklist'
             );
         }
-    }
-
-    public function analyzePdfInbox(Request $request): Response
-    {
-        $guard = $this->auth->guard();
-        if ($guard instanceof Response) {
-            return $guard;
-        }
-
-        $user = $this->auth->currentUser();
-        if ($user === null) {
-            return Response::redirect($this->config->url('/login'));
-        }
-
-        $userId = (int) $user['id'];
-        $selectedMonth = trim((string) $request->input('selected_month'));
-        $catalog = null;
-        $documentCatalog = null;
-        $alerts = [];
-
-        try {
-            $catalog = $this->recurringIssuerCatalogService->loadCatalog();
-        } catch (Throwable $exception) {
-            $alerts[] = [
-                'type' => 'warning',
-                'message' => $exception->getMessage(),
-            ];
-        }
-
-        try {
-            $documentCatalog = $this->documentInboxCatalogService->loadCatalog();
-        } catch (Throwable $exception) {
-            $alerts[] = [
-                'type' => 'warning',
-                'message' => $exception->getMessage(),
-            ];
-        }
-
-        if (!$request->isMethod('POST') || !$this->csrf->validate((string) $request->input('_csrf'))) {
-            return $this->renderPage(
-                $userId,
-                alerts: array_merge($alerts, [[
-                    'type' => 'error',
-                    'message' => 'Nieprawidłowy token CSRF. Odśwież formularz i spróbuj ponownie.',
-                ]]),
-                catalog: $catalog,
-                documentCatalog: $documentCatalog,
-                selectedMonth: $selectedMonth !== '' ? $selectedMonth : date('Y-m'),
-                scrollTarget: '#accountant-package-pdf-analysis-form'
-            );
-        }
-
-        if ($documentCatalog === null) {
-            return $this->renderPage(
-                $userId,
-                alerts: array_merge($alerts, [[
-                    'type' => 'error',
-                    'message' => 'Nie udało się przygotować listy plików PDF do analizy.',
-                ]]),
-                catalog: $catalog,
-                selectedMonth: $selectedMonth !== '' ? $selectedMonth : date('Y-m'),
-                scrollTarget: '#accountant-package-pdf-analysis-form'
-            );
-        }
-
-        $pdfFiles = array_values((array) ($documentCatalog['pdf_files'] ?? []));
-        if ($pdfFiles === []) {
-            return $this->renderPage(
-                $userId,
-                alerts: array_merge($alerts, [[
-                    'type' => 'warning',
-                    'message' => 'W folderze roboczym nie ma plików PDF do analizy.',
-                ]]),
-                catalog: $catalog,
-                documentCatalog: $documentCatalog,
-                selectedMonth: $selectedMonth !== '' ? $selectedMonth : date('Y-m'),
-                scrollTarget: '#accountant-package-pdf-analysis-form'
-            );
-        }
-
-        $package = $this->pdfInboxAnalysisService->analyze($pdfFiles);
-        $this->storePdfAnalysisPackage($userId, $package);
-
-        return $this->renderPage(
-            $userId,
-            alerts: array_merge($alerts, [[
-                'type' => 'info',
-                'message' => sprintf(
-                    'Krok 5 gotowy: przeanalizowano %d plików PDF. %d ma warstwę tekstową, %d wygląda na skan lub pusty PDF.',
-                    (int) ($package['summary']['document_count'] ?? 0),
-                    (int) ($package['summary']['text_ready_count'] ?? 0),
-                    (int) ($package['summary']['scan_like_count'] ?? 0)
-                ),
-            ]]),
-            catalog: $catalog,
-            documentCatalog: $documentCatalog,
-            pdfAnalysisPackage: $package,
-            selectedMonth: $selectedMonth !== '' ? $selectedMonth : date('Y-m'),
-            scrollTarget: '#accountant-package-pdf-analysis-results'
-        );
-    }
-
-    public function parsePdfCandidates(Request $request): Response
-    {
-        $guard = $this->auth->guard();
-        if ($guard instanceof Response) {
-            return $guard;
-        }
-
-        $user = $this->auth->currentUser();
-        if ($user === null) {
-            return Response::redirect($this->config->url('/login'));
-        }
-
-        $userId = (int) $user['id'];
-        $selectedMonth = trim((string) $request->input('selected_month'));
-        $catalog = null;
-        $documentCatalog = null;
-        $alerts = [];
-
-        try {
-            $catalog = $this->recurringIssuerCatalogService->loadCatalog();
-        } catch (Throwable $exception) {
-            $alerts[] = ['type' => 'warning', 'message' => $exception->getMessage()];
-        }
-
-        try {
-            $documentCatalog = $this->documentInboxCatalogService->loadCatalog();
-        } catch (Throwable $exception) {
-            $alerts[] = ['type' => 'warning', 'message' => $exception->getMessage()];
-        }
-
-        if (!$request->isMethod('POST') || !$this->csrf->validate((string) $request->input('_csrf'))) {
-            return $this->renderPage(
-                $userId,
-                alerts: array_merge($alerts, [[
-                    'type' => 'error',
-                    'message' => 'Nieprawidłowy token CSRF. Odśwież formularz i spróbuj ponownie.',
-                ]]),
-                catalog: $catalog,
-                documentCatalog: $documentCatalog,
-                selectedMonth: $selectedMonth !== '' ? $selectedMonth : date('Y-m'),
-                scrollTarget: '#accountant-package-pdf-candidates-form'
-            );
-        }
-
-        if ($documentCatalog === null) {
-            return $this->renderPage(
-                $userId,
-                alerts: array_merge($alerts, [[
-                    'type' => 'error',
-                    'message' => 'Nie udało się przygotować listy plików PDF do parsowania.',
-                ]]),
-                catalog: $catalog,
-                selectedMonth: $selectedMonth !== '' ? $selectedMonth : date('Y-m'),
-                scrollTarget: '#accountant-package-pdf-candidates-form'
-            );
-        }
-
-        $pdfFiles = array_values((array) ($documentCatalog['pdf_files'] ?? []));
-        if ($pdfFiles === []) {
-            return $this->renderPage(
-                $userId,
-                alerts: array_merge($alerts, [[
-                    'type' => 'warning',
-                    'message' => 'W folderze roboczym nie ma plików PDF do parsowania.',
-                ]]),
-                catalog: $catalog,
-                documentCatalog: $documentCatalog,
-                selectedMonth: $selectedMonth !== '' ? $selectedMonth : date('Y-m'),
-                scrollTarget: '#accountant-package-pdf-candidates-form'
-            );
-        }
-
-        $aiProvider = $this->activeAiProvider();
-        if (
-            in_array($aiProvider, self::REMOTE_AI_PROVIDERS, true)
-            && $request->input('acknowledge_remote_ai') !== '1'
-        ) {
-            return $this->renderPage(
-                $userId,
-                alerts: array_merge($alerts, [[
-                    'type' => 'error',
-                    'message' => 'Aktywny tryb AI to ' . $aiProvider . '. Potwierdz, ze zgadzasz sie na przetwarzanie danych poza lokalna stacja, aby uruchomic analize.',
-                ]]),
-                catalog: $catalog,
-                documentCatalog: $documentCatalog,
-                selectedMonth: $selectedMonth !== '' ? $selectedMonth : date('Y-m'),
-                scrollTarget: '#accountant-package-pdf-candidates-form'
-            );
-        }
-
-        $package = $this->pdfInvoiceCandidateParser->parseFiles($pdfFiles);
-        $this->storePdfCandidatesPackage($userId, $package);
-
-        return $this->renderPage(
-            $userId,
-            alerts: array_merge($alerts, [[
-                'type' => 'info',
-                'message' => sprintf(
-                    'Krok 7 gotowy: z PDF-ów rozpoznano %d kandydatów dokumentów z %d plików.',
-                    (int) ($package['summary']['parsed_document_count'] ?? 0),
-                    (int) ($package['summary']['source_file_count'] ?? 0)
-                ),
-            ]]),
-            catalog: $catalog,
-            documentCatalog: $documentCatalog,
-            selectedMonth: $selectedMonth !== '' ? $selectedMonth : date('Y-m'),
-            pdfCandidatesPackage: $package,
-            scrollTarget: '#accountant-package-pdf-candidates-results'
-        );
     }
 
     public function export(Request $request): Response
@@ -458,7 +284,8 @@ final class AccountantPackageController
                     'type' => 'error',
                     'message' => $exception->getMessage(),
                 ]],
-                selectedMonth: $selectedMonth !== '' ? $selectedMonth : date('Y-m'),
+                selectedMonth: $selectedMonth,
+                checklistState: $this->emptyChecklistState(),
                 scrollTarget: '#accountant-package-summary'
             );
         }
@@ -474,7 +301,6 @@ final class AccountantPackageController
         }
 
         $ksefPackage = $this->currentKsefPackage($userId);
-        $pdfAnalysisPackage = $this->currentPdfAnalysisPackage($userId);
         $pdfCandidatesPackage = $this->currentPdfCandidatesPackage($userId);
 
         if ($ksefPackage === null) {
@@ -482,13 +308,13 @@ final class AccountantPackageController
                 $userId,
                 alerts: array_merge($alerts, [[
                     'type' => 'warning',
-                    'message' => 'Najpierw pobierz miesięczne faktury kosztowe z KSeF, a potem wróć do eksportu CSV.',
+                    'message' => 'Najpierw uruchom funkcje i wygeneruj zestawienie, a dopiero potem pobierz CSV.',
                 ]]),
                 catalog: $catalog,
                 documentCatalog: $documentCatalog,
-                pdfAnalysisPackage: $pdfAnalysisPackage,
                 pdfCandidatesPackage: $pdfCandidatesPackage,
-                selectedMonth: $selectedMonth !== '' ? $selectedMonth : date('Y-m'),
+                selectedMonth: '',
+                checklistState: $this->emptyChecklistState(),
                 scrollTarget: '#accountant-package-summary'
             );
         }
@@ -501,31 +327,31 @@ final class AccountantPackageController
                 $userId,
                 alerts: array_merge($alerts, [[
                     'type' => 'warning',
-                    'message' => 'Brak danych do eksportu CSV dla bieżącego pakietu.',
+                    'message' => 'Brak danych do eksportu CSV dla biezacego pakietu.',
                 ]]),
                 catalog: $catalog,
                 documentCatalog: $documentCatalog,
                 ksefPackage: $ksefPackage,
-                pdfAnalysisPackage: $pdfAnalysisPackage,
                 pdfCandidatesPackage: $pdfCandidatesPackage,
-                selectedMonth: (string) ($ksefPackage['selected_month'] ?? ($selectedMonth !== '' ? $selectedMonth : date('Y-m'))),
+                selectedMonth: '',
+                checklistState: $this->emptyChecklistState(),
                 scrollTarget: '#accountant-package-summary'
             );
         }
 
         $content = $this->csvExporter->export($rows, [
             'Sekcja',
-            'Stały wystawca',
+            'Staly wystawca',
             'Status',
             'Spodziewane',
             'Znalezione',
-            'Źródło',
+            'Zrodlo',
             'Wystawca dokumentu',
             'Numer dokumentu',
             'Kwota',
             'Waluta',
             'Data',
-            'Referencja źródła',
+            'Referencja zrodla',
             'Uwagi',
         ]);
 
@@ -548,19 +374,14 @@ final class AccountantPackageController
         ?array $catalog = null,
         ?array $documentCatalog = null,
         ?array $ksefPackage = null,
-        ?array $pdfAnalysisPackage = null,
         ?array $pdfCandidatesPackage = null,
         string $selectedMonth = '',
-        string $scrollTarget = ''
+        string $scrollTarget = '',
+        array $checklistState = []
     ): Response {
         $ksefPackage ??= $this->currentKsefPackage($userId);
-        $pdfAnalysisPackage ??= $this->currentPdfAnalysisPackage($userId);
         $pdfCandidatesPackage ??= $this->currentPdfCandidatesPackage($userId);
-        if ($selectedMonth === '') {
-            $selectedMonth = is_array($ksefPackage) && isset($ksefPackage['selected_month'])
-                ? (string) $ksefPackage['selected_month']
-                : date('Y-m');
-        }
+        $checklistState = array_replace($this->emptyChecklistState(), $checklistState);
 
         $settings = $this->applicationSettings->snapshot();
         $activeEnvironment = (string) ($settings['ksef']['environment'] ?? 'test');
@@ -573,10 +394,26 @@ final class AccountantPackageController
             $packageSummary = $this->accountantPackageSummaryService->build($catalog, $ksefPackage, $pdfCandidatesPackage);
         }
 
+        return $this->viewResponse($alerts, $catalog, $documentCatalog, $selectedMonth, $checklistState, $ksefPackage, $packageSummary, $activeEnvironment, $environmentSettings, $aiProvider, $scrollTarget);
+    }
+
+    private function viewResponse(
+        array $alerts,
+        ?array $catalog,
+        ?array $documentCatalog,
+        string $selectedMonth,
+        array $checklistState,
+        ?array $ksefPackage,
+        ?array $packageSummary,
+        string $activeEnvironment,
+        array $environmentSettings,
+        string $aiProvider,
+        string $scrollTarget
+    ): Response {
         return Response::html($this->view->render('accountant_package', [
-            'title' => 'Pakiet dla księgowej',
-            'pageTitle' => 'Funkcja 4: pakiet dla księgowej',
-            'pageDescription' => 'Moduł przygotuje kontrolę kompletnej paczki faktur kosztowych za wybrany miesiąc.',
+            'title' => 'Pakiet dla ksiegowej',
+            'pageTitle' => 'Pakiet dla ksiegowej',
+            'pageDescription' => 'Przygotuj miesieczne zestawienie faktur kosztowych do przekazania biuru rachunkowemu.',
             'alerts' => $alerts,
             'scrollTarget' => $scrollTarget,
             'desktopFolderPath' => $this->recurringIssuerCatalogService->expectedFolderPath(),
@@ -584,9 +421,8 @@ final class AccountantPackageController
             'catalog' => $catalog,
             'documentCatalog' => $documentCatalog,
             'selectedMonth' => $selectedMonth,
+            'checklistState' => $checklistState,
             'ksefPackage' => $ksefPackage,
-            'pdfAnalysisPackage' => $pdfAnalysisPackage,
-            'pdfCandidatesPackage' => $pdfCandidatesPackage,
             'packageSummary' => $packageSummary,
             'activeEnvironment' => $activeEnvironment,
             'environmentBaseUrl' => (string) ($environmentSettings['base_url'] ?? ''),
@@ -684,23 +520,8 @@ final class AccountantPackageController
 
         foreach ((array) ($packageSummary['recurring_rows'] ?? []) as $row) {
             $matchedInvoices = (array) ($row['matched_invoices'] ?? []);
-
             if ($matchedInvoices === []) {
-                $rows[] = [
-                    'STAŁY_WYSTAWCA',
-                    (string) ($row['issuer_name'] ?? ''),
-                    (string) ($row['status_label'] ?? ''),
-                    (int) ($row['expected_invoice_count'] ?? 0),
-                    (int) ($row['matched_invoice_count'] ?? 0),
-                    '',
-                    '',
-                    '',
-                    '',
-                    '',
-                    '',
-                    '',
-                    'Brak dopasowanych dokumentów.',
-                ];
+                $rows[] = ['STALY_WYSTAWCA', (string) ($row['issuer_name'] ?? ''), (string) ($row['status_label'] ?? ''), (int) ($row['expected_invoice_count'] ?? 0), (int) ($row['matched_invoice_count'] ?? 0), '', '', '', '', '', '', '', 'Brak dopasowanych dokumentow.'];
                 continue;
             }
 
@@ -710,7 +531,7 @@ final class AccountantPackageController
                 }
 
                 $rows[] = [
-                    'STAŁY_WYSTAWCA',
+                    'STALY_WYSTAWCA',
                     (string) ($row['issuer_name'] ?? ''),
                     (string) ($row['status_label'] ?? ''),
                     (int) ($row['expected_invoice_count'] ?? 0),
@@ -733,11 +554,7 @@ final class AccountantPackageController
             }
 
             $rows[] = [
-                'INNE',
-                '',
-                '',
-                '',
-                '',
+                'INNE', '', '', '', '',
                 (string) ($document['source_label'] ?? ''),
                 (string) ($document['issuer_name'] ?? ''),
                 (string) ($document['invoice_number'] ?? ''),
@@ -755,11 +572,7 @@ final class AccountantPackageController
             }
 
             $rows[] = [
-                'RĘCZNA_WERYFIKACJA',
-                '',
-                (string) ($document['status_label'] ?? 'Do ręcznej weryfikacji'),
-                '',
-                '',
+                'RECZNA_WERYFIKACJA', '', (string) ($document['status_label'] ?? 'Do recznej weryfikacji'), '', '',
                 (string) ($document['source_label'] ?? ''),
                 (string) ($document['issuer_name'] ?? ''),
                 (string) ($document['invoice_number'] ?? ''),
@@ -785,9 +598,7 @@ final class AccountantPackageController
 
     private function buildExportFileName(string $selectedMonth): string
     {
-        $normalizedMonth = preg_match('/^\d{4}-\d{2}$/', $selectedMonth) === 1
-            ? $selectedMonth
-            : date('Y-m');
+        $normalizedMonth = preg_match('/^\d{4}-\d{2}$/', $selectedMonth) === 1 ? $selectedMonth : date('Y-m');
 
         return 'pakiet-dla-ksiegowej-' . str_replace('-', '', $normalizedMonth) . '.csv';
     }
@@ -806,45 +617,20 @@ final class AccountantPackageController
 
         if ((int) ($package['user_id'] ?? 0) !== $userId) {
             unset($_SESSION[self::SESSION_KSEF_KEY]);
-
             return null;
         }
 
         return $package;
     }
 
-    private function storePdfAnalysisPackage(int $userId, array $package): void
+    private function clearPdfAnalysisPackage(): void
     {
-        $_SESSION[self::SESSION_PDF_ANALYSIS_KEY] = [
-            'user_id' => $userId,
-            'package' => $package,
-        ];
-    }
-
-    private function currentPdfAnalysisPackage(int $userId): ?array
-    {
-        $stored = $_SESSION[self::SESSION_PDF_ANALYSIS_KEY] ?? null;
-        if (!is_array($stored)) {
-            return null;
-        }
-
-        if ((int) ($stored['user_id'] ?? 0) !== $userId) {
-            unset($_SESSION[self::SESSION_PDF_ANALYSIS_KEY]);
-
-            return null;
-        }
-
-        $package = $stored['package'] ?? null;
-
-        return is_array($package) ? $package : null;
+        unset($_SESSION[self::SESSION_PDF_ANALYSIS_KEY]);
     }
 
     private function storePdfCandidatesPackage(int $userId, array $package): void
     {
-        $_SESSION[self::SESSION_PDF_CANDIDATES_KEY] = [
-            'user_id' => $userId,
-            'package' => $package,
-        ];
+        $_SESSION[self::SESSION_PDF_CANDIDATES_KEY] = ['user_id' => $userId, 'package' => $package];
     }
 
     private function currentPdfCandidatesPackage(int $userId): ?array
@@ -856,12 +642,19 @@ final class AccountantPackageController
 
         if ((int) ($stored['user_id'] ?? 0) !== $userId) {
             unset($_SESSION[self::SESSION_PDF_CANDIDATES_KEY]);
-
             return null;
         }
 
         $package = $stored['package'] ?? null;
-
         return is_array($package) ? $package : null;
+    }
+
+    private function emptyChecklistState(): array
+    {
+        return [
+            'confirm_pdf_ready' => false,
+            'confirm_csv_ready' => false,
+            'acknowledge_remote_ai' => false,
+        ];
     }
 }

@@ -9,13 +9,9 @@ $baseUrl = rtrim((string) $config->get('app.base_url', ''), '/');
 $title = $title ?? 'Agent KSeF';
 
 $navItems = [
-    '/' => 'Dashboard',
-    '/settings' => 'Ustawienia',
-    '/ksef' => 'KSeF',
-    '/bank-import' => 'Import bankowy',
-    '/accounting-compare' => 'Porownanie JPK',
     '/accountant-package' => 'Pakiet dla ksiegowej',
-    '/history' => 'Historia',
+    '/accounting-compare' => 'Porownanie JPK',
+    '/settings' => 'Ustawienia',
 ];
 ?>
 <!DOCTYPE html>
@@ -30,9 +26,9 @@ $navItems = [
     <div class="app-shell">
         <header class="app-header">
             <div class="brand">
-                <span class="brand-tag">MVP ksiegowe AI</span>
+                <span class="brand-tag">Wersja produkcyjna</span>
                 <h1>Agent KSeF</h1>
-                <p>PHP + TypeScript, wdrozenie przez FTP, bez logiki serwerowej zaleznej od Node.js.</p>
+                <p>Pakiet dla ksiegowej i porownanie JPK w uproszczonym przeplywie roboczym.</p>
             </div>
             <div class="nav-stack">
                 <nav class="top-nav" aria-label="Glowna nawigacja">

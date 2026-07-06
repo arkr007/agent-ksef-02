@@ -155,7 +155,6 @@ $accountantPackageController = new AccountantPackageController(
     $csvExporter,
     $recurringIssuerCatalogService,
     $documentInboxCatalogService,
-    $pdfInboxAnalysisService,
     $accountantPackageSummaryService,
     $pdfInvoiceCandidateParser
 );
@@ -169,30 +168,21 @@ $router->get('/setup-admin', [$authController, 'setupForm']);
 $router->post('/setup-admin', [$authController, 'setupAdmin']);
 $router->get('/settings', [$settingsController, 'index']);
 $router->post('/settings', [$settingsController, 'update']);
-$router->get('/ksef', [$ksefController, 'index']);
-$router->post('/ksef/fetch', [$ksefController, 'fetch']);
-$router->get('/ksef/export', [$ksefController, 'export']);
-$router->get('/bank-import', [$bankImportController, 'index']);
-$router->post('/bank-import/import', [$bankImportController, 'import']);
-$router->post('/bank-import/export', [$bankImportController, 'exportPain']);
 $router->get('/accounting-compare', [$accountingCompareController, 'index']);
 $router->post('/accounting-compare/import', [$accountingCompareController, 'import']);
 $router->get('/accounting-compare/export', [$accountingCompareController, 'export']);
 $router->get('/accountant-package', [$accountantPackageController, 'index']);
 $router->get('/accountant-package/export', [$accountantPackageController, 'export']);
-$router->post('/accountant-package/fetch-ksef', [$accountantPackageController, 'fetchKsef']);
-$router->post('/accountant-package/analyze-pdfs', [$accountantPackageController, 'analyzePdfInbox']);
-$router->post('/accountant-package/parse-pdf-candidates', [$accountantPackageController, 'parsePdfCandidates']);
-$router->get('/history', [$dashboardController, 'history']);
+$router->post('/accountant-package/run', [$accountantPackageController, 'run']);
 
 try {
     $response = $router->dispatch($request);
 } catch (Throwable $exception) {
     $response = Response::html(
         $view->render('dashboard', [
-            'title' => 'Błąd aplikacji',
-            'pageTitle' => 'Błąd aplikacji',
-            'pageDescription' => 'Wystąpił błąd podczas uruchamiania aplikacji.',
+            'title' => 'Blad aplikacji',
+            'pageTitle' => 'Blad aplikacji',
+            'pageDescription' => 'Wystapil blad podczas uruchamiania aplikacji.',
             'cards' => [],
             'alerts' => [
                 [

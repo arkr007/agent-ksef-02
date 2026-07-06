@@ -13,12 +13,12 @@ $baseUrl = rtrim((string) $config->get('app.base_url', ''), '/');
 ?>
 <div class="page-grid compare-page-grid">
     <aside class="side-card">
-        <h2>Zakres etapu 6</h2>
+        <h2>Jak to dziala</h2>
         <ul>
-            <li>upload pliku JPK XML,</li>
-            <li>pobranie live sprzedazy i kosztow z KSeF,</li>
-            <li>porownanie po typie, numerze i kwocie brutto,</li>
-            <li>eksport CSV wyniku porownania.</li>
+            <li>wgraj plik JPK XML,</li>
+            <li>wybierz miesiac porownania,</li>
+            <li>aplikacja pobierze dane KSeF na biezaco,</li>
+            <li>na koncu pobierzesz wynik CSV.</li>
         </ul>
     </aside>
 
@@ -30,17 +30,15 @@ $baseUrl = rtrim((string) $config->get('app.base_url', ''), '/');
         <article class="panel">
             <h2><?= htmlspecialchars((string) $pageTitle, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?></h2>
             <p><?= htmlspecialchars((string) $pageDescription, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?></p>
-            <p class="small-note">MVP obsluguje przede wszystkim JPK_PKPIR z wierszami PKPIRWiersz, a awaryjnie takze warianty z wierszami sprzedazy i zakupu.</p>
-            <p class="small-note">Porownanie nie korzysta z lokalnego archiwum KSeF. Dla wybranego miesiaca pobieramy dane na biezaco z obu rejestrow: kosztow i sprzedazy.</p>
-            <p class="small-note">Aby nie wpasc w limit KSeF, porownanie korzysta z metadanych i moze przez okolo 15 minut uzyc ich z cache biezacej sesji, bez masowego pobierania XML.</p>
-            <p class="small-note">Kwoty KSeF porownujemy w PLN. Faktury walutowe przeliczamy kursem srednim NBP z ostatniego dostepnego notowania nie pozniejszego niz data faktury, a zgodnosc kwot uznajemy dla roznicy mniejszej niz <?= htmlspecialchars($amountTolerance, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?>.</p>
+            <p class="small-note">Porownanie korzysta z biezacych danych KSeF dla wskazanego miesiaca i zapisuje wynik do pliku CSV.</p>
+            <p class="small-note">Kwoty KSeF porownujemy w PLN. Dla faktur walutowych stosowany jest kurs NBP, a zgodnosc kwot uznajemy dla roznicy mniejszej niz <?= htmlspecialchars($amountTolerance, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?>.</p>
         </article>
 
         <article class="card" id="compare-import-form">
             <div class="section-head">
                 <div>
-                    <h3>Import pliku JPK</h3>
-                    <p class="small-note">Wgraj plik JPK XML i wybierz miesiac. Aplikacja pobierze na biezaco faktury KSeF z tego miesiaca, a potem wykona porownanie.</p>
+                    <h3>Uruchom porownanie</h3>
+                    <p class="small-note">Wgraj plik JPK XML i wybierz miesiac. Po wykonaniu mozesz od razu pobrac wynik CSV.</p>
                 </div>
             </div>
 
@@ -74,20 +72,18 @@ $baseUrl = rtrim((string) $config->get('app.base_url', ''), '/');
         </article>
 
         <article class="card" id="compare-results">
-                <div class="section-head">
-                    <div>
-                        <h3>Wynik porownania</h3>
-                        <p class="small-note">Statusy: BOTH, NUMBER_MATCH_AMOUNT_DIFF, AMOUNT_MATCH_NUMBER_DIFF, ONLY_KSEF, ONLY_JPK.</p>
-                        <p class="small-note">Kolumna "Brutto KSeF" pokazuje kwote uzyta do porownania w PLN.</p>
-                    </div>
-
+            <div class="section-head">
+                <div>
+                    <h3>Wynik porownania</h3>
+                    <p class="small-note">Statusy: BOTH, NUMBER_MATCH_AMOUNT_DIFF, AMOUNT_MATCH_NUMBER_DIFF, ONLY_KSEF, ONLY_JPK.</p>
+                </div>
                 <?php if ($package !== null): ?>
-                    <a class="button button-secondary" href="<?= htmlspecialchars($baseUrl . '/accounting-compare/export', ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?>">Eksport CSV</a>
+                    <a class="button button-secondary" href="<?= htmlspecialchars($baseUrl . '/accounting-compare/export', ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?>">Pobierz CSV</a>
                 <?php endif; ?>
             </div>
 
             <?php if ($package === null): ?>
-                <p class="small-note">Po imporcie JPK zobaczysz tu wynik porownania z aktualnie pobranym miesiecznym zbiorem KSeF.</p>
+                <p class="small-note">Po imporcie JPK zobaczysz tu podsumowanie i liste roznic gotowa do eksportu CSV.</p>
             <?php else: ?>
                 <div class="metrics">
                     <div class="metric">
@@ -99,40 +95,8 @@ $baseUrl = rtrim((string) $config->get('app.base_url', ''), '/');
                         <strong><?= htmlspecialchars((string) ($package['source_file_name'] ?? ''), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?></strong>
                     </div>
                     <div class="metric">
-                        <span>KSeF razem</span>
-                        <strong><?= htmlspecialchars((string) ($package['live_ksef_invoice_count'] ?? 0), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?></strong>
-                    </div>
-                    <div class="metric">
-                        <span>KSeF koszty</span>
-                        <strong><?= htmlspecialchars((string) ($package['live_ksef_cost_count'] ?? 0), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?></strong>
-                    </div>
-                    <div class="metric">
-                        <span>KSeF sprzedaz</span>
-                        <strong><?= htmlspecialchars((string) ($package['live_ksef_sale_count'] ?? 0), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?></strong>
-                    </div>
-                    <div class="metric">
-                        <span>JPK razem</span>
-                        <strong><?= htmlspecialchars((string) ($package['summary']['entries_count'] ?? 0), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?></strong>
-                    </div>
-                    <div class="metric">
-                        <span>JPK koszty</span>
-                        <strong><?= htmlspecialchars((string) ($package['summary']['pdf_cost_count'] ?? 0), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?></strong>
-                    </div>
-                    <div class="metric">
-                        <span>JPK sprzedaz</span>
-                        <strong><?= htmlspecialchars((string) ($package['summary']['pdf_sale_count'] ?? 0), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?></strong>
-                    </div>
-                    <div class="metric">
                         <span>Zgodne</span>
                         <strong><?= htmlspecialchars((string) ($package['summary']['both_count'] ?? 0), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?></strong>
-                    </div>
-                    <div class="metric">
-                        <span>Numer ok, kwota inna</span>
-                        <strong><?= htmlspecialchars((string) ($package['summary']['number_match_amount_diff_count'] ?? 0), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?></strong>
-                    </div>
-                    <div class="metric">
-                        <span>Kwota ok, numer inny</span>
-                        <strong><?= htmlspecialchars((string) ($package['summary']['amount_match_number_diff_count'] ?? 0), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?></strong>
                     </div>
                     <div class="metric">
                         <span>Tylko KSeF</span>
@@ -141,6 +105,10 @@ $baseUrl = rtrim((string) $config->get('app.base_url', ''), '/');
                     <div class="metric">
                         <span>Tylko JPK</span>
                         <strong><?= htmlspecialchars((string) ($package['summary']['only_jpk_count'] ?? 0), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?></strong>
+                    </div>
+                    <div class="metric">
+                        <span>Kwota rozna</span>
+                        <strong><?= htmlspecialchars((string) ($package['summary']['number_match_amount_diff_count'] ?? 0), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?></strong>
                     </div>
                 </div>
 
@@ -154,7 +122,7 @@ $baseUrl = rtrim((string) $config->get('app.base_url', ''), '/');
                                 <th>Brutto JPK</th>
                                 <th>KSeF</th>
                                 <th>Brutto KSeF</th>
-                                <th>Strony</th>
+                                <th>Kontrahent</th>
                                 <th>Uzasadnienie</th>
                             </tr>
                         </thead>
@@ -197,11 +165,6 @@ $baseUrl = rtrim((string) $config->get('app.base_url', ''), '/');
                         </tbody>
                     </table>
                 </div>
-
-                <article class="card compare-preview-card">
-                    <h3>Podglad wczytanego XML</h3>
-                    <pre class="compare-raw-preview"><?= htmlspecialchars((string) ($package['raw_text_preview'] ?? ''), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?></pre>
-                </article>
             <?php endif; ?>
         </article>
     </section>
