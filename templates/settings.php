@@ -56,7 +56,7 @@
             </article>
         </section>
 
-        <article class="panel" id="settings-local-paths" data-local-path-helper data-helper-base-url="<?= htmlspecialchars((string) $config->get('local_helper.base_url', 'http://127.0.0.1:8765'), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?>">
+        <article class="panel" id="settings-local-paths" data-local-path-helper data-helper-base-url="<?= htmlspecialchars((string) $config->get('local_helper.base_url', 'http://localhost:8765'), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?>">
             <h2>Lokalizacje folderow lokalnych</h2>
             <?php if (($activeForm ?? '') === 'local_paths'): ?>
                 <?php foreach (($alerts ?? []) as $index => $alert): ?>

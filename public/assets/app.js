@@ -60,7 +60,7 @@
 
   var localPathHelperRoot = document.querySelector("[data-local-path-helper]");
   if (localPathHelperRoot) {
-    var helperBaseUrl = localPathHelperRoot.getAttribute("data-helper-base-url") || "http://127.0.0.1:8765";
+    var helperBaseUrl = localPathHelperRoot.getAttribute("data-helper-base-url") || "http://localhost:8765";
     var helperStatus = localPathHelperRoot.querySelector("[data-helper-status]");
     var helperButtons = localPathHelperRoot.querySelectorAll("[data-helper-action]");
 
