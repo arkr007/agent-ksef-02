@@ -7,6 +7,10 @@
 
 $baseUrl = rtrim((string) $config->get('app.base_url', ''), '/');
 $title = $title ?? 'Agent KSeF';
+$stylesPath = dirname(__DIR__) . '/public/assets/styles.css';
+$appJsPath = dirname(__DIR__) . '/public/assets/app.js';
+$stylesVersion = is_file($stylesPath) ? (string) filemtime($stylesPath) : '1';
+$appJsVersion = is_file($appJsPath) ? (string) filemtime($appJsPath) : '1';
 
 $navItems = [
     '/accountant-package' => 'Pakiet dla ksiegowej',
@@ -20,7 +24,7 @@ $navItems = [
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?= htmlspecialchars((string) $title, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?></title>
-    <link rel="stylesheet" href="<?= htmlspecialchars($baseUrl . '/assets/styles.css', ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?>">
+    <link rel="stylesheet" href="<?= htmlspecialchars($baseUrl . '/assets/styles.css?v=' . $stylesVersion, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?>">
 </head>
 <body>
     <div class="app-shell">
@@ -66,6 +70,6 @@ $navItems = [
 
         <?= $content ?>
     </div>
-    <script src="<?= htmlspecialchars($baseUrl . '/assets/app.js', ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?>"></script>
+    <script src="<?= htmlspecialchars($baseUrl . '/assets/app.js?v=' . $appJsVersion, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?>"></script>
 </body>
 </html>
