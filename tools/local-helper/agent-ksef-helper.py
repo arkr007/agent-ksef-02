@@ -1,6 +1,6 @@
 import argparse
 import json
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from tkinter import Tk, filedialog
 
 
@@ -58,6 +58,7 @@ class HelperHandler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Access-Control-Allow-Private-Network", "true")
         super().end_headers()
 
     def log_message(self, format: str, *args) -> None:
@@ -88,33 +89,42 @@ class HelperHandler(BaseHTTPRequestHandler):
         return data if isinstance(data, dict) else {}
 
     def do_OPTIONS(self) -> None:
-        self.send_response(204)
-        self.end_headers()
+        try:
+            self.send_response(204)
+            self.end_headers()
+        except Exception as error:
+            self.send_json(500, {"ok": False, "message": str(error)})
 
     def do_GET(self) -> None:
-        if self.path == "/health":
-            self.send_json(200, {"ok": True, "status": "ok", "port": self.server.server_port})
-            return
+        try:
+            if self.path == "/health":
+                self.send_json(200, {"ok": True, "status": "ok", "port": self.server.server_port})
+                return
 
-        self.send_json(404, {"ok": False, "message": "Nieznany endpoint helpera."})
+            self.send_json(404, {"ok": False, "message": "Nieznany endpoint helpera."})
+        except Exception as error:
+            self.send_json(500, {"ok": False, "message": str(error)})
 
     def do_POST(self) -> None:
-        if self.path == "/pick-folder":
-            body = self.read_json()
-            description = str(body.get("description") or "Wybierz folder")
-            result = pick_folder(description)
-            self.send_json(200, {"ok": True, **result})
-            return
+        try:
+            if self.path == "/pick-folder":
+                body = self.read_json()
+                description = str(body.get("description") or "Wybierz folder")
+                result = pick_folder(description)
+                self.send_json(200, {"ok": True, **result})
+                return
 
-        if self.path == "/pick-file":
-            body = self.read_json()
-            title = str(body.get("title") or "Wybierz plik")
-            filetypes = parse_filetypes(str(body.get("filter") or ""))
-            result = pick_file(title, filetypes)
-            self.send_json(200, {"ok": True, **result})
-            return
+            if self.path == "/pick-file":
+                body = self.read_json()
+                title = str(body.get("title") or "Wybierz plik")
+                filetypes = parse_filetypes(str(body.get("filter") or ""))
+                result = pick_file(title, filetypes)
+                self.send_json(200, {"ok": True, **result})
+                return
 
-        self.send_json(404, {"ok": False, "message": "Nieznany endpoint helpera."})
+            self.send_json(404, {"ok": False, "message": "Nieznany endpoint helpera."})
+        except Exception as error:
+            self.send_json(500, {"ok": False, "message": str(error)})
 
 
 def main() -> None:
@@ -122,7 +132,7 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=8765)
     args = parser.parse_args()
 
-    server = ThreadingHTTPServer(("127.0.0.1", args.port), HelperHandler)
+    server = HTTPServer(("127.0.0.1", args.port), HelperHandler)
     print(f"Agent KSeF local helper starting on port {args.port}")
     print("Available endpoints: GET /health, POST /pick-folder, POST /pick-file")
     server.serve_forever()
