@@ -107,7 +107,6 @@ final class AccountantPackageController
         $checklistState = [
             'confirm_pdf_ready' => $request->input('confirm_pdf_ready') === '1',
             'confirm_csv_ready' => $request->input('confirm_csv_ready') === '1',
-            'acknowledge_remote_ai' => $request->input('acknowledge_remote_ai') === '1',
         ];
         $catalog = null;
         $documentCatalog = null;
@@ -165,17 +164,6 @@ final class AccountantPackageController
             $alerts[] = [
                 'type' => 'error',
                 'message' => 'Wybierz poprawny miesiac do pobrania faktur z KSeF.',
-            ];
-        }
-
-        $aiProvider = $this->activeAiProvider();
-        if (
-            in_array($aiProvider, self::REMOTE_AI_PROVIDERS, true)
-            && !$checklistState['acknowledge_remote_ai']
-        ) {
-            $alerts[] = [
-                'type' => 'error',
-                'message' => 'Aktywny tryb AI to ' . $aiProvider . '. Potwierdz zgode na przetwarzanie danych poza lokalna stacja, aby uruchomic funkcje.',
             ];
         }
 
@@ -654,7 +642,6 @@ final class AccountantPackageController
         return [
             'confirm_pdf_ready' => false,
             'confirm_csv_ready' => false,
-            'acknowledge_remote_ai' => false,
         ];
     }
 }

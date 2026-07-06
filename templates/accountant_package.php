@@ -120,11 +120,6 @@ $summaryMonth = (string) (($ksefPackage['selected_month'] ?? '') !== '' ? $ksefP
                         <strong>UWAGA</strong>
                         <p>Aktywny tryb AI to <?= htmlspecialchars((string) $aiProvider, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?>. Uruchomienie moze wyslac dane z faktur poza lokalna stacje robocza.</p>
                     </div>
-
-                    <label class="checkbox-line">
-                        <input type="checkbox" name="acknowledge_remote_ai" value="1" data-required-remote-ai <?= !empty($checklistState['acknowledge_remote_ai']) ? 'checked' : '' ?>>
-                        Potwierdzam uruchomienie analizy AI poza lokalna stacja
-                    </label>
                 <?php endif; ?>
 
                 <div class="form-actions">
@@ -314,40 +309,3 @@ $summaryMonth = (string) (($ksefPackage['selected_month'] ?? '') !== '' ? $ksefP
         </article>
     </section>
 </div>
-<script>
-(function () {
-  var form = document.querySelector('[data-package-checklist]');
-  if (!form) {
-    return;
-  }
-
-  var runButton = form.querySelector('[data-run-package-button]');
-  var monthInput = form.querySelector('[data-required-month]');
-  var pdfCheckbox = form.querySelector('input[name="confirm_pdf_ready"]');
-  var csvCheckbox = form.querySelector('input[name="confirm_csv_ready"]');
-  var remoteAiCheckbox = form.querySelector('[data-required-remote-ai]');
-
-  var updateState = function () {
-    var ready = Boolean(runButton)
-      && Boolean(monthInput && monthInput.value)
-      && Boolean(pdfCheckbox && pdfCheckbox.checked)
-      && Boolean(csvCheckbox && csvCheckbox.checked)
-      && (!remoteAiCheckbox || remoteAiCheckbox.checked);
-
-    if (runButton) {
-      runButton.disabled = !ready;
-    }
-  };
-
-  [monthInput, pdfCheckbox, csvCheckbox, remoteAiCheckbox].forEach(function (field) {
-    if (!field) {
-      return;
-    }
-
-    field.addEventListener('change', updateState);
-    field.addEventListener('input', updateState);
-  });
-
-  updateState();
-})();
-</script>
