@@ -6,6 +6,7 @@ Helper pozwala wybierac folder PDF i plik `stali_wystawcy.csv` z okna systemoweg
 
 ## Pliki
 
+- `tools/local-helper/agent-ksef-helper.py`
 - `tools/local-helper/agent-ksef-helper.ps1`
 - `tools/local-helper/agent-ksef-helper.cmd`
 
@@ -39,4 +40,5 @@ Akcje wyboru:
 
 - Helper dziala lokalnie na tej samej stacji co przegladarka.
 - Nie przesyla samych plikow na serwer, zwraca tylko wybrane sciezki.
+- Wymaga lokalnie zainstalowanego Pythona z obsluga `tkinter`.
 - To jest pierwszy krok integracji lokalnej. Przy docelowym wdrozeniu internetowym trzeba jeszcze osobno zweryfikowac zachowanie przegladarki dla polaczenia z `localhost`.
