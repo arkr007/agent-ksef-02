@@ -67,6 +67,7 @@ final class SettingsController
             'ksef' => $this->handleKsefUpdate($request, (int) $user['id'], $storedSnapshot),
             'ai' => $this->handleAiUpdate($request, (int) $user['id'], $storedSnapshot),
             'ai_test' => $this->handleAiTest($request, $storedSnapshot),
+            'local_paths' => $this->handleLocalPathsUpdate($request, (int) $user['id'], $storedSnapshot),
             'bank' => $this->handleBankUpdate($request, (int) $user['id'], $storedSnapshot),
             default => [
                 'errors' => ['Nieznany formularz ustawien.'],
@@ -333,6 +334,50 @@ final class SettingsController
         return ['errors' => [], 'snapshot' => $snapshot, 'form' => 'bank'];
     }
 
+    private function handleLocalPathsUpdate(Request $request, int $userId, array $storedSnapshot): array
+    {
+        $data = [
+            'document_inbox_dir' => trim((string) $request->input('document_inbox_dir')),
+            'recurring_issuers_csv' => trim((string) $request->input('recurring_issuers_csv')),
+        ];
+
+        $errors = [];
+        if ($data['document_inbox_dir'] === '') {
+            $errors[] = 'Katalog z lokalnymi PDF-ami nie moze byc pusty.';
+        }
+
+        if ($data['recurring_issuers_csv'] === '') {
+            $errors[] = 'Sciezka pliku stalych wystawcow nie moze byc pusta.';
+        } elseif (strtolower(pathinfo($data['recurring_issuers_csv'], PATHINFO_EXTENSION)) !== 'csv') {
+            $errors[] = 'Plik stalych wystawcow musi wskazywac na plik CSV.';
+        }
+
+        $snapshot = array_replace_recursive($storedSnapshot, [
+            'local_paths' => [
+                'document_inbox_dir' => $data['document_inbox_dir'],
+                'recurring_issuers_csv' => $data['recurring_issuers_csv'],
+            ],
+        ]);
+
+        if ($errors !== []) {
+            return ['errors' => $errors, 'snapshot' => $snapshot, 'form' => 'local_paths'];
+        }
+
+        $this->applicationSettings->saveLocalPaths($data);
+        $this->auditLogRepository->log(
+            action: 'settings_updated_local_paths',
+            userId: $userId,
+            entityType: 'settings',
+            entityId: null,
+            context: [
+                'document_inbox_dir' => $data['document_inbox_dir'],
+                'recurring_issuers_csv' => $data['recurring_issuers_csv'],
+            ]
+        );
+
+        return ['errors' => [], 'snapshot' => $snapshot, 'form' => 'local_paths'];
+    }
+
     private function mergeAiSnapshot(array $storedSnapshot, array $data): array
     {
         return array_replace_recursive($storedSnapshot, [
@@ -369,7 +414,7 @@ final class SettingsController
         return Response::html($this->view->render('settings', [
             'title' => 'Ustawienia',
             'pageTitle' => 'Ustawienia aplikacji',
-            'pageDescription' => 'Tutaj zarzadzasz trybem KSeF, providerem AI i danymi platnika dla eksportu przelewow.',
+            'pageDescription' => 'Tutaj zarzadzasz trybem KSeF, providerem AI, lokalnymi folderami i danymi platnika dla eksportu przelewow.',
             'alerts' => $alerts,
             'activeForm' => $activeForm,
             'scrollTarget' => $scrollTarget,
@@ -386,6 +431,7 @@ final class SettingsController
         return match ($form) {
             'ksef' => '#settings-ksef',
             'ai', 'ai_test' => '#settings-ai',
+            'local_paths' => '#settings-local-paths',
             'bank' => '#settings-bank',
             default => '',
         };

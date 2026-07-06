@@ -4,6 +4,7 @@
         <ul>
             <li>tryb KSeF production/test,</li>
             <li>provider AI: ollama / hybrid / openai,</li>
+            <li>lokalizacje katalogu PDF i pliku CSV,</li>
             <li>dane platnika do przelewow.</li>
         </ul>
     </aside>
@@ -47,7 +48,46 @@
                 <p><strong>KSeF production token:</strong> <?= htmlspecialchars((string) $prodTokenPresenceLabel, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?><?= $prodTokenPresenceLabel === 'ustawione' ? ' (********)' : '' ?></p>
                 <p><strong>KSeF test token:</strong> <?= htmlspecialchars((string) $testTokenPresenceLabel, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?><?= $testTokenPresenceLabel === 'ustawione' ? ' (********)' : '' ?></p>
             </article>
+
+            <article class="card">
+                <h3>Lokalne foldery</h3>
+                <p><strong>Katalog PDF:</strong> <span class="metric-path"><?= htmlspecialchars((string) ($settings['local_paths']['document_inbox_dir'] ?? ''), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?></span></p>
+                <p><strong>Plik CSV:</strong> <span class="metric-path"><?= htmlspecialchars((string) ($settings['local_paths']['recurring_issuers_csv'] ?? ''), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?></span></p>
+            </article>
         </section>
+
+        <article class="panel" id="settings-local-paths">
+            <h2>Lokalizacje folderow lokalnych</h2>
+            <?php if (($activeForm ?? '') === 'local_paths'): ?>
+                <?php foreach (($alerts ?? []) as $index => $alert): ?>
+                    <div class="alert alert-<?= htmlspecialchars((string) $alert['type'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?>" id="settings-local-paths-alert-<?= $index ?>">
+                        <strong><?= htmlspecialchars((string) strtoupper($alert['type']), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?></strong>
+                        <p><?= htmlspecialchars((string) $alert['message'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?></p>
+                        <button type="button" data-dismiss="#settings-local-paths-alert-<?= $index ?>">x</button>
+                    </div>
+                <?php endforeach; ?>
+            <?php endif; ?>
+
+            <form method="post" action="<?= htmlspecialchars($config->url('/settings'), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?>" class="settings-form" autocomplete="off">
+                <input type="hidden" name="_csrf" value="<?= htmlspecialchars((string) $csrfToken, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?>">
+                <input type="hidden" name="form_name" value="local_paths">
+
+                <div class="form-grid">
+                    <div class="form-field">
+                        <label for="document_inbox_dir">Katalog lokalnych PDF</label>
+                        <input id="document_inbox_dir" name="document_inbox_dir" type="text" value="<?= htmlspecialchars((string) ($settings['local_paths']['document_inbox_dir'] ?? ''), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?>">
+                        <p class="small-note">To katalog, z ktorego modul "Pakiet dla ksiegowej" czyta faktury PDF z biezacej stacji roboczej.</p>
+                    </div>
+                    <div class="form-field">
+                        <label for="recurring_issuers_csv">Plik listy stalych wystawcow</label>
+                        <input id="recurring_issuers_csv" name="recurring_issuers_csv" type="text" value="<?= htmlspecialchars((string) ($settings['local_paths']['recurring_issuers_csv'] ?? ''), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?>">
+                        <p class="small-note">Wskaz tutaj plik `stali_wystawcy.csv`, domyslnie w podkatalogu `rob`.</p>
+                    </div>
+                </div>
+
+                <button class="button" type="submit">Zapisz lokalizacje folderow</button>
+            </form>
+        </article>
 
         <article class="panel" id="settings-ksef">
             <h2>Ustawienia KSeF</h2>

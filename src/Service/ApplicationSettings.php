@@ -65,6 +65,10 @@ final class ApplicationSettings
                 'payer_iban' => $this->plainValue($stored, 'bank.payer_iban', (string) $this->config->get('bank.payer_iban', '')),
                 'default_currency' => $this->plainValue($stored, 'bank.default_currency', (string) $this->config->get('bank.default_currency', 'PLN')),
             ],
+            'local_paths' => [
+                'document_inbox_dir' => $this->plainValue($stored, 'local_paths.document_inbox_dir', $this->defaultDocumentInboxDir()),
+                'recurring_issuers_csv' => $this->plainValue($stored, 'local_paths.recurring_issuers_csv', $this->defaultRecurringIssuersCsvPath()),
+            ],
         ];
     }
 
@@ -104,6 +108,12 @@ final class ApplicationSettings
         $this->settingsRepository->saveText('bank.payer_address', $data['payer_address']);
         $this->settingsRepository->saveText('bank.payer_iban', $data['payer_iban']);
         $this->settingsRepository->saveText('bank.default_currency', $data['default_currency']);
+    }
+
+    public function saveLocalPaths(array $data): void
+    {
+        $this->settingsRepository->saveText('local_paths.document_inbox_dir', $data['document_inbox_dir']);
+        $this->settingsRepository->saveText('local_paths.recurring_issuers_csv', $data['recurring_issuers_csv']);
     }
 
     private function plainValue(array $stored, string $key, string $fallback): string
@@ -169,5 +179,51 @@ final class ApplicationSettings
         }
 
         return $this->secretVault->decrypt($raw);
+    }
+
+    private function defaultDocumentInboxDir(): string
+    {
+        $desktopDirectory = $this->resolveDesktopDirectory();
+        $baseDirectory = $desktopDirectory ?? 'Desktop';
+
+        return rtrim($baseDirectory, '/\\') . DIRECTORY_SEPARATOR . 'faktury_do_ksiegowej';
+    }
+
+    private function defaultRecurringIssuersCsvPath(): string
+    {
+        return $this->defaultDocumentInboxDir()
+            . DIRECTORY_SEPARATOR
+            . 'rob'
+            . DIRECTORY_SEPARATOR
+            . 'stali_wystawcy.csv';
+    }
+
+    private function resolveDesktopDirectory(): ?string
+    {
+        $candidates = [];
+
+        $userProfile = getenv('USERPROFILE');
+        if (is_string($userProfile) && trim($userProfile) !== '') {
+            $candidates[] = rtrim(trim($userProfile), '/\\') . DIRECTORY_SEPARATOR . 'Desktop';
+        }
+
+        $homeDrive = getenv('HOMEDRIVE');
+        $homePath = getenv('HOMEPATH');
+        if (is_string($homeDrive) && is_string($homePath) && trim($homeDrive . $homePath) !== '') {
+            $candidates[] = rtrim(trim($homeDrive . $homePath), '/\\') . DIRECTORY_SEPARATOR . 'Desktop';
+        }
+
+        $home = getenv('HOME');
+        if (is_string($home) && trim($home) !== '') {
+            $candidates[] = rtrim(trim($home), '/\\') . DIRECTORY_SEPARATOR . 'Desktop';
+        }
+
+        foreach ($candidates as $candidate) {
+            if (is_dir($candidate)) {
+                return $candidate;
+            }
+        }
+
+        return null;
     }
 }

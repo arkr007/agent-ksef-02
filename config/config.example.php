@@ -68,6 +68,10 @@ return [
         'payer_iban' => '',
         'default_currency' => 'PLN',
     ],
+    'local_paths' => [
+        'document_inbox_dir' => '',
+        'recurring_issuers_csv' => '',
+    ],
     'paths' => [
         'uploads' => STORAGE_PATH . '/uploads',
         'exports' => STORAGE_PATH . '/exports',

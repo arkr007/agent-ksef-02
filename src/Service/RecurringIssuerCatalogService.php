@@ -6,44 +6,42 @@ namespace App\Service;
 
 final class RecurringIssuerCatalogService
 {
-    private const DESKTOP_FOLDER_NAME = 'faktury_do_ksiegowej';
-    private const CSV_SUBDIRECTORY_NAME = 'rob';
-    private const CSV_FILE_NAME = 'stali_wystawcy.csv';
+    public function __construct(
+        private ApplicationSettings $applicationSettings
+    ) {
+    }
 
     public function loadCatalog(): array
     {
-        $desktopDirectory = $this->resolveDesktopDirectory();
-        if ($desktopDirectory === null) {
-            throw new \RuntimeException('Nie udało się ustalić katalogu Desktop dla bieżącej stacji roboczej.');
-        }
-
-        $sourceDirectory = $desktopDirectory . DIRECTORY_SEPARATOR . self::DESKTOP_FOLDER_NAME;
-        $csvDirectory = $sourceDirectory . DIRECTORY_SEPARATOR . self::CSV_SUBDIRECTORY_NAME;
-        $csvPath = $csvDirectory . DIRECTORY_SEPARATOR . self::CSV_FILE_NAME;
+        $sourceDirectory = $this->expectedFolderPath();
+        $csvPath = $this->expectedCsvPath();
+        $csvDirectory = dirname($csvPath);
 
         clearstatcache(true, $csvPath);
 
+        if ($sourceDirectory === '') {
+            throw new \RuntimeException('Nie ustawiono katalogu z lokalnymi dokumentami PDF.');
+        }
+
+        if ($csvPath === '') {
+            throw new \RuntimeException('Nie ustawiono sciezki pliku listy stalych wystawcow.');
+        }
+
         if (!is_dir($sourceDirectory)) {
-            throw new \RuntimeException(
-                'Nie znaleziono katalogu źródłowego ' . $sourceDirectory . '.'
-            );
+            throw new \RuntimeException('Nie znaleziono katalogu zrodlowego ' . $sourceDirectory . '.');
         }
 
         if (!is_dir($csvDirectory)) {
-            throw new \RuntimeException(
-                'Nie znaleziono katalogu z plikiem stałych wystawców: ' . $csvDirectory . '.'
-            );
+            throw new \RuntimeException('Nie znaleziono katalogu z plikiem stalych wystawcow: ' . $csvDirectory . '.');
         }
 
         if (!is_file($csvPath) || !is_readable($csvPath)) {
-            throw new \RuntimeException(
-                'Nie znaleziono pliku listy stałych wystawców: ' . $csvPath . '.'
-            );
+            throw new \RuntimeException('Nie znaleziono pliku listy stalych wystawcow: ' . $csvPath . '.');
         }
 
         $handle = fopen($csvPath, 'rb');
         if ($handle === false) {
-            throw new \RuntimeException('Nie udało się otworzyć pliku ' . $csvPath . '.');
+            throw new \RuntimeException('Nie udalo sie otworzyc pliku ' . $csvPath . '.');
         }
 
         $issuers = [];
@@ -63,13 +61,13 @@ final class RecurringIssuerCatalogService
 
             if ($issuerName === '') {
                 fclose($handle);
-                throw new \RuntimeException('W pliku stałych wystawców brakuje nazwy w linii ' . $lineNumber . '.');
+                throw new \RuntimeException('W pliku stalych wystawcow brakuje nazwy w linii ' . $lineNumber . '.');
             }
 
             if ($expectedCountRaw === '' || preg_match('/^\d+$/', $expectedCountRaw) !== 1) {
                 fclose($handle);
                 throw new \RuntimeException(
-                    'W pliku stałych wystawców oczekiwana liczba faktur musi być liczbą całkowitą w linii '
+                    'W pliku stalych wystawcow oczekiwana liczba faktur musi byc liczba calkowita w linii '
                     . $lineNumber . '.'
                 );
             }
@@ -88,7 +86,7 @@ final class RecurringIssuerCatalogService
         fclose($handle);
 
         if ($issuers === []) {
-            throw new \RuntimeException('Plik stałych wystawców jest pusty.');
+            throw new \RuntimeException('Plik stalych wystawcow jest pusty.');
         }
 
         return [
@@ -104,47 +102,16 @@ final class RecurringIssuerCatalogService
 
     public function expectedFolderPath(): string
     {
-        $desktopDirectory = $this->resolveDesktopDirectory();
+        $snapshot = $this->applicationSettings->snapshot();
 
-        return ($desktopDirectory ?? 'Desktop') . DIRECTORY_SEPARATOR . self::DESKTOP_FOLDER_NAME;
+        return trim((string) ($snapshot['local_paths']['document_inbox_dir'] ?? ''));
     }
 
     public function expectedCsvPath(): string
     {
-        return $this->expectedFolderPath()
-            . DIRECTORY_SEPARATOR
-            . self::CSV_SUBDIRECTORY_NAME
-            . DIRECTORY_SEPARATOR
-            . self::CSV_FILE_NAME;
-    }
+        $snapshot = $this->applicationSettings->snapshot();
 
-    private function resolveDesktopDirectory(): ?string
-    {
-        $candidates = [];
-
-        $userProfile = getenv('USERPROFILE');
-        if (is_string($userProfile) && trim($userProfile) !== '') {
-            $candidates[] = rtrim(trim($userProfile), '/\\') . DIRECTORY_SEPARATOR . 'Desktop';
-        }
-
-        $homeDrive = getenv('HOMEDRIVE');
-        $homePath = getenv('HOMEPATH');
-        if (is_string($homeDrive) && is_string($homePath) && trim($homeDrive . $homePath) !== '') {
-            $candidates[] = rtrim(trim($homeDrive . $homePath), '/\\') . DIRECTORY_SEPARATOR . 'Desktop';
-        }
-
-        $home = getenv('HOME');
-        if (is_string($home) && trim($home) !== '') {
-            $candidates[] = rtrim(trim($home), '/\\') . DIRECTORY_SEPARATOR . 'Desktop';
-        }
-
-        foreach ($candidates as $candidate) {
-            if (is_dir($candidate)) {
-                return $candidate;
-            }
-        }
-
-        return null;
+        return trim((string) ($snapshot['local_paths']['recurring_issuers_csv'] ?? ''));
     }
 
     private function sanitizeCell(?string $value): string
