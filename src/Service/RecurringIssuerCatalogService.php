@@ -35,6 +35,45 @@ final class RecurringIssuerCatalogService
             throw new \RuntimeException('Nie znaleziono katalogu z plikiem stalych wystawcow: ' . $csvDirectory . '.');
         }
 
+        return $this->loadCatalogFromCsvPath($csvPath, $sourceDirectory);
+    }
+
+    public function loadCatalogFromUploadedCsv(array $file, string $sourceLabel = 'Jednorazowy upload'): array
+    {
+        if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+            throw new \RuntimeException('Nie udalo sie odebrac pliku CSV ze stalymi wystawcami.');
+        }
+
+        $tmpName = trim((string) ($file['tmp_name'] ?? ''));
+        if ($tmpName === '' || !is_file($tmpName) || !is_readable($tmpName)) {
+            throw new \RuntimeException('Plik CSV ze stalymi wystawcami nie jest dostepny do odczytu.');
+        }
+
+        $originalName = trim((string) ($file['name'] ?? 'stali_wystawcy.csv'));
+        $extension = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
+        if ($extension !== 'csv') {
+            throw new \RuntimeException('Lista stalych wystawcow musi byc w pliku CSV.');
+        }
+
+        return $this->loadCatalogFromCsvPath($tmpName, $sourceLabel, $originalName);
+    }
+
+    public function expectedFolderPath(): string
+    {
+        $snapshot = $this->applicationSettings->snapshot();
+
+        return trim((string) ($snapshot['local_paths']['document_inbox_dir'] ?? ''));
+    }
+
+    public function expectedCsvPath(): string
+    {
+        $snapshot = $this->applicationSettings->snapshot();
+
+        return trim((string) ($snapshot['local_paths']['recurring_issuers_csv'] ?? ''));
+    }
+
+    private function loadCatalogFromCsvPath(string $csvPath, string $sourceDirectory, ?string $displayPath = null): array
+    {
         if (!is_file($csvPath) || !is_readable($csvPath)) {
             throw new \RuntimeException('Nie znaleziono pliku listy stalych wystawcow: ' . $csvPath . '.');
         }
@@ -91,27 +130,13 @@ final class RecurringIssuerCatalogService
 
         return [
             'source_directory' => $sourceDirectory,
-            'csv_path' => $csvPath,
+            'csv_path' => $displayPath ?? $csvPath,
             'issuers' => $issuers,
             'summary' => [
                 'issuer_count' => count($issuers),
                 'expected_invoice_count' => $totalExpectedInvoices,
             ],
         ];
-    }
-
-    public function expectedFolderPath(): string
-    {
-        $snapshot = $this->applicationSettings->snapshot();
-
-        return trim((string) ($snapshot['local_paths']['document_inbox_dir'] ?? ''));
-    }
-
-    public function expectedCsvPath(): string
-    {
-        $snapshot = $this->applicationSettings->snapshot();
-
-        return trim((string) ($snapshot['local_paths']['recurring_issuers_csv'] ?? ''));
     }
 
     private function sanitizeCell(?string $value): string

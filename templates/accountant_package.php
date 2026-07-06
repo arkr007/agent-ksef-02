@@ -24,8 +24,8 @@ $summaryMonth = (string) (($ksefPackage['selected_month'] ?? '') !== '' ? $ksefP
     <aside class="side-card">
         <h2>Checklista</h2>
         <ul>
-            <li>wrzuc faktury PDF do katalogu roboczego,</li>
-            <li>upewnij sie, ze lista stalych wystawcow jest aktualna,</li>
+            <li>wybierz folder z fakturami PDF,</li>
+            <li>wybierz aktualny plik CSV stalych wystawcow,</li>
             <li>wybierz miesiac KSeF,</li>
             <li>wygeneruj zestawienie i pobierz CSV.</li>
         </ul>
@@ -54,19 +54,19 @@ $summaryMonth = (string) (($ksefPackage['selected_month'] ?? '') !== '' ? $ksefP
             <div class="section-head">
                 <div>
                     <h3>Zrodla danych</h3>
-                    <p class="small-note">Aplikacja korzysta z lokalnych plikow oraz z miesiecznych danych pobieranych z KSeF.</p>
+                    <p class="small-note">Aplikacja korzysta z jednorazowo wybranych plikow z przegladarki oraz z miesiecznych danych pobieranych z KSeF.</p>
                 </div>
             </div>
 
             <div class="metrics">
                 <div class="metric">
-                    <span>Katalog PDF</span>
-                    <strong><?= $documentCatalog !== null ? 'wykryty' : 'sprawdz' ?></strong>
+                    <span>Pakiet PDF</span>
+                    <strong><?= $documentCatalog !== null ? 'wybrany' : 'oczekuje' ?></strong>
                     <p class="metric-path"><?= htmlspecialchars($desktopFolderPath, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?></p>
                 </div>
                 <div class="metric">
                     <span>Plik stalych wystawcow</span>
-                    <strong><?= $catalog !== null ? 'wykryty' : 'sprawdz' ?></strong>
+                    <strong><?= $catalog !== null ? 'wybrany' : 'oczekuje' ?></strong>
                     <p class="metric-path"><?= htmlspecialchars($expectedCsvPath, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?></p>
                 </div>
                 <div class="metric">
@@ -84,7 +84,7 @@ $summaryMonth = (string) (($ksefPackage['selected_month'] ?? '') !== '' ? $ksefP
             <div class="section-head">
                 <div>
                     <h3>Uruchom pakiet dla ksiegowej</h3>
-                    <p class="small-note">Przycisk aktywuje sie po zaznaczeniu obu checkboxow i wyborze miesiaca. Po wykonaniu formularz wraca do stanu poczatkowego.</p>
+                    <p class="small-note">Przycisk aktywuje sie po wyborze plikow, zaznaczeniu obu checkboxow i wyborze miesiaca. Po wykonaniu formularz wraca do stanu poczatkowego.</p>
                 </div>
             </div>
 
@@ -95,17 +95,31 @@ $summaryMonth = (string) (($ksefPackage['selected_month'] ?? '') !== '' ? $ksefP
             </div>
             <p class="small-note">Base URL aktywnego srodowiska: <strong><?= htmlspecialchars($environmentBaseUrl !== '' ? $environmentBaseUrl : 'brak', ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?></strong></p>
 
-            <form method="post" action="<?= htmlspecialchars($baseUrl . '/accountant-package/run', ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?>" class="settings-form" data-package-checklist>
+            <form method="post" action="<?= htmlspecialchars($baseUrl . '/accountant-package/run', ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?>" class="settings-form" data-package-checklist enctype="multipart/form-data">
                 <input type="hidden" name="_csrf" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?>">
+
+                <div class="form-grid">
+                    <label class="form-field">
+                        <span>Folder z fakturami PDF</span>
+                        <input type="file" name="pdf_files[]" accept=".pdf,application/pdf" multiple webkitdirectory directory data-required-pdf-files>
+                        <p class="small-note">Wybierz katalog z dokumentami PDF. Pliki sa uzywane tylko do tego jednego przebiegu.</p>
+                    </label>
+
+                    <label class="form-field">
+                        <span>Lista stalych wystawcow CSV</span>
+                        <input type="file" name="csv_file" accept=".csv,text/csv" data-required-csv-file>
+                        <p class="small-note">Wybierz aktualny plik `stali_wystawcy.csv`. Plik nie jest trwale zapisywany na serwerze.</p>
+                    </label>
+                </div>
 
                 <label class="checkbox-line">
                     <input type="checkbox" name="confirm_pdf_ready" value="1" <?= !empty($checklistState['confirm_pdf_ready']) ? 'checked' : '' ?>>
-                    Wgralem faktury w PDF do katalogu roboczego
+                    Potwierdzam, ze wybralem poprawny pakiet PDF do przetworzenia
                 </label>
 
                 <label class="checkbox-line">
                     <input type="checkbox" name="confirm_csv_ready" value="1" <?= !empty($checklistState['confirm_csv_ready']) ? 'checked' : '' ?>>
-                    Wgralem aktualna liste stalych wystawcow
+                    Potwierdzam, ze wybralem aktualny plik CSV stalych wystawcow
                 </label>
 
                 <div class="form-grid">

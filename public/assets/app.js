@@ -34,19 +34,24 @@
     var monthInput = packageChecklistForm.querySelector("[data-required-month]");
     var pdfCheckbox = packageChecklistForm.querySelector('input[name="confirm_pdf_ready"]');
     var csvCheckbox = packageChecklistForm.querySelector('input[name="confirm_csv_ready"]');
+    var pdfFilesInput = packageChecklistForm.querySelector("[data-required-pdf-files]");
+    var csvFileInput = packageChecklistForm.querySelector("[data-required-csv-file]");
 
     var updateChecklistState = function () {
       var ready = Boolean(runButton)
         && Boolean(monthInput && monthInput.value)
         && Boolean(pdfCheckbox && pdfCheckbox.checked)
         && Boolean(csvCheckbox && csvCheckbox.checked);
+      var hasPdfFiles = Boolean(pdfFilesInput && pdfFilesInput.files && pdfFilesInput.files.length > 0);
+      var hasCsvFile = Boolean(csvFileInput && csvFileInput.files && csvFileInput.files.length > 0);
+      ready = ready && hasPdfFiles && hasCsvFile;
 
       if (runButton) {
         runButton.disabled = !ready;
       }
     };
 
-    [monthInput, pdfCheckbox, csvCheckbox].forEach(function (field) {
+    [monthInput, pdfCheckbox, csvCheckbox, pdfFilesInput, csvFileInput].forEach(function (field) {
       if (!field) {
         return;
       }
