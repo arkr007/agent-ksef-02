@@ -71,6 +71,10 @@ final class AccountantPackageController
 
     public function run(Request $request): Response
     {
+        @ini_set('max_execution_time', '900');
+        @ini_set('max_input_time', '900');
+        @set_time_limit(900);
+
         $guard = $this->auth->guard();
         if ($guard instanceof Response) {
             return $guard;
@@ -163,6 +167,8 @@ final class AccountantPackageController
             );
         }
 
+        $this->releaseSessionLock();
+
         try {
             $catalog = $this->recurringIssuerCatalogService->loadCatalogFromUploadedCsv($uploadedCsv, 'Jednorazowy upload CSV');
             $documentCatalog = $this->documentInboxCatalogService->buildCatalogFromUploadedFiles($pdfFiles, 'Jednorazowy upload PDF');
@@ -170,6 +176,7 @@ final class AccountantPackageController
             $pdfCandidatesPackage = $this->pdfInvoiceCandidateParser->parseFiles($pdfFiles);
             $packageSummary = $this->accountantPackageSummaryService->build($catalog, $ksefPackage, $pdfCandidatesPackage);
 
+            $this->resumeSession();
             $this->storeKsefPackage($ksefPackage);
             $this->storePdfCandidatesPackage($userId, $pdfCandidatesPackage);
             $this->storePackageSummary($userId, $packageSummary);
@@ -200,6 +207,8 @@ final class AccountantPackageController
                 scrollTarget: '#accountant-package-summary'
             );
         } catch (Throwable $exception) {
+            $this->resumeSession();
+
             return $this->renderPage(
                 $userId,
                 alerts: array_merge($alerts, [[
@@ -714,5 +723,19 @@ final class AccountantPackageController
             'confirm_pdf_ready' => false,
             'confirm_csv_ready' => false,
         ];
+    }
+
+    private function releaseSessionLock(): void
+    {
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            session_write_close();
+        }
+    }
+
+    private function resumeSession(): void
+    {
+        if (session_status() !== PHP_SESSION_ACTIVE) {
+            session_start();
+        }
     }
 }

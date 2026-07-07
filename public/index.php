@@ -49,6 +49,10 @@ use App\Service\Bank\Pain00100109Exporter;
 
 require dirname(__DIR__) . '/src/bootstrap.php';
 
+@ini_set('max_execution_time', '900');
+@ini_set('max_input_time', '900');
+@set_time_limit(900);
+
 $config = Config::load(CONFIG_PATH);
 date_default_timezone_set((string) $config->get('app.timezone', 'Europe/Warsaw'));
 
