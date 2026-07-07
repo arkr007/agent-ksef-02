@@ -1,3 +1,7 @@
+php_value max_file_uploads 200
+php_value upload_max_filesize 32M
+php_value post_max_size 128M
+
 <IfModule mod_rewrite.c>
     RewriteEngine On
     RewriteBase /agent_ksef_v03/public/

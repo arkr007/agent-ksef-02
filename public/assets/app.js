@@ -36,8 +36,13 @@
     var csvCheckbox = packageChecklistForm.querySelector('input[name="confirm_csv_ready"]');
     var pdfFilesInput = packageChecklistForm.querySelector("[data-required-pdf-files]");
     var csvFileInput = packageChecklistForm.querySelector("[data-required-csv-file]");
+    var pdfFilesCountInput = packageChecklistForm.querySelector("[data-pdf-files-count]");
 
     var updateChecklistState = function () {
+      if (pdfFilesCountInput) {
+        pdfFilesCountInput.value = String(pdfFilesInput && pdfFilesInput.files ? pdfFilesInput.files.length : 0);
+      }
+
       var ready = Boolean(runButton)
         && Boolean(monthInput && monthInput.value)
         && Boolean(pdfCheckbox && pdfCheckbox.checked)

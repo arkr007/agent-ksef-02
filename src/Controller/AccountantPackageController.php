@@ -93,6 +93,7 @@ final class AccountantPackageController
         $uploadedCsv = $request->file('csv_file');
         $uploadedPdfGroup = $request->file('pdf_files');
         $pdfFiles = $this->normalizeUploadedFiles(is_array($uploadedPdfGroup) ? $uploadedPdfGroup : null);
+        $expectedPdfFileCount = max(0, (int) $request->input('pdf_files_count', '0'));
 
         if (!$request->isMethod('POST') || !$this->csrf->validate((string) $request->input('_csrf'))) {
             return $this->renderPage(
@@ -140,6 +141,15 @@ final class AccountantPackageController
             $alerts[] = [
                 'type' => 'error',
                 'message' => 'Wybierz folder lub zestaw plikow PDF do jednorazowego przetworzenia.',
+            ];
+        } elseif ($expectedPdfFileCount > count($pdfFiles)) {
+            $alerts[] = [
+                'type' => 'error',
+                'message' => sprintf(
+                    'Przegladarka wyslala %d plikow PDF, ale serwer przyjal tylko %d. Zwieksz limit uploadu i sprobuj ponownie.',
+                    $expectedPdfFileCount,
+                    count($pdfFiles)
+                ),
             ];
         }
 

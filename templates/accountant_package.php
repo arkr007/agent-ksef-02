@@ -100,15 +100,16 @@ $summaryMonth = (string) (($ksefPackage['selected_month'] ?? '') !== '' ? $ksefP
 
                 <div class="form-grid">
                     <label class="form-field">
-                        <span>Folder z fakturami PDF</span>
-                        <input type="file" name="pdf_files[]" accept=".pdf,application/pdf" multiple webkitdirectory directory data-required-pdf-files>
-                        <p class="small-note">Wybierz katalog z dokumentami PDF. Pliki sa uzywane tylko do tego jednego przebiegu.</p>
-                    </label>
-
-                    <label class="form-field">
                         <span>Lista stalych wystawcow CSV</span>
                         <input type="file" name="csv_file" accept=".csv,text/csv" data-required-csv-file>
                         <p class="small-note">Wybierz aktualny plik `stali_wystawcy.csv`. Plik nie jest trwale zapisywany na serwerze.</p>
+                    </label>
+
+                    <label class="form-field">
+                        <span>Folder z fakturami PDF</span>
+                        <input type="file" name="pdf_files[]" accept=".pdf,application/pdf" multiple webkitdirectory directory data-required-pdf-files>
+                        <input type="hidden" name="pdf_files_count" value="0" data-pdf-files-count>
+                        <p class="small-note">Wybierz katalog z dokumentami PDF. Pliki sa uzywane tylko do tego jednego przebiegu.</p>
                     </label>
                 </div>
 
