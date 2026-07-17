@@ -8,6 +8,9 @@ use DateTimeImmutable;
 
 final class PdfInvoiceCandidateParser
 {
+    private const MANUAL_REVIEW_RETRY_CHUNK_SIZE = 8;
+    private const MAX_MANUAL_REVIEW_RETRY_DEPTH = 2;
+
     public function __construct(
         private PdfInboxAnalysisService $pdfInboxAnalysisService,
         private PdfPageRenderService $pdfPageRenderService,
@@ -107,8 +110,17 @@ final class PdfInvoiceCandidateParser
         ];
     }
 
-    private function parseWholePdf(array $pageTexts, array $pageImages, array $file, int $pageCount): array
-    {
+    private function parseWholePdf(
+        array $pageTexts,
+        array $pageImages,
+        array $file,
+        int $pageCount,
+        int $pageOffset = 0,
+        ?int $fullPageCount = null,
+        int $retryDepth = 0
+    ): array {
+        $fullPageCount ??= $pageCount;
+
         $aiAttempt = $this->documentAiRecognizer->recognizePdfDocumentsFromImages(
             (string) ($file['name'] ?? ''),
             $pageImages,
@@ -119,14 +131,18 @@ final class PdfInvoiceCandidateParser
             return $this->buildWholePdfDocumentsFromAiRecognition(
                 $aiAttempt['data'],
                 $pageTexts,
+                $pageImages,
                 $file,
-                $pageCount
+                $pageCount,
+                $pageOffset,
+                $fullPageCount,
+                $retryDepth
             );
         }
 
         $aiFailureNote = null;
         if (($aiAttempt['status'] ?? '') === 'error') {
-            $aiFailureNote = (string) ($aiAttempt['note'] ?? 'Błąd rozpoznawania OpenAI.');
+            $aiFailureNote = (string) ($aiAttempt['note'] ?? 'Blad rozpoznawania AI.');
         }
 
         $fallbackDocuments = [];
@@ -134,8 +150,8 @@ final class PdfInvoiceCandidateParser
             $parsed = $this->parsePageHeuristically(
                 $pageTexts[$pageIndex] ?? '',
                 $file,
-                $pageIndex + 1,
-                $pageCount,
+                $pageOffset + $pageIndex + 1,
+                $fullPageCount,
                 $aiFailureNote
             );
 
@@ -150,8 +166,12 @@ final class PdfInvoiceCandidateParser
     private function buildWholePdfDocumentsFromAiRecognition(
         array $recognition,
         array $pageTexts,
+        array $pageImages,
         array $file,
-        int $pageCount
+        int $pageCount,
+        int $pageOffset,
+        int $fullPageCount,
+        int $retryDepth
     ): array {
         $documents = [];
         $coveredPages = [];
@@ -166,10 +186,11 @@ final class PdfInvoiceCandidateParser
                 continue;
             }
 
+            $document = $this->offsetDocumentPages($document, $pageOffset, $fullPageCount);
             $documents[] = $document;
 
-            $pageFrom = (int) ($document['source_page_from'] ?? 0);
-            $pageTo = (int) ($document['source_page_to'] ?? 0);
+            $pageFrom = max(1, (int) ($document['source_page_from'] ?? 0) - $pageOffset);
+            $pageTo = max($pageFrom, (int) ($document['source_page_to'] ?? 0) - $pageOffset);
             for ($page = $pageFrom; $page <= $pageTo; $page++) {
                 $coveredPages[$page] = true;
             }
@@ -188,17 +209,42 @@ final class PdfInvoiceCandidateParser
                 continue;
             }
 
+            if ($this->shouldRetryManualReviewRange($pageFrom, $pageTo, $retryDepth)) {
+                foreach ($this->retryManualReviewRange(
+                    $pageTexts,
+                    $pageImages,
+                    $file,
+                    $pageFrom,
+                    $pageTo,
+                    $pageOffset,
+                    $fullPageCount,
+                    $retryDepth
+                ) as $retryDocument) {
+                    $documents[] = $retryDocument;
+                }
+
+                for ($page = $pageFrom; $page <= $pageTo; $page++) {
+                    $coveredPages[$page] = true;
+                }
+
+                continue;
+            }
+
             for ($page = $pageFrom; $page <= $pageTo; $page++) {
                 $coveredPages[$page] = true;
             }
 
+            $absoluteFrom = $pageOffset + $pageFrom;
+            $absoluteTo = $pageOffset + $pageTo;
+
             $documents[] = $this->buildManualReviewRangeDocument(
                 $file,
-                $pageFrom,
-                $pageTo,
-                $pageCount,
+                $absoluteFrom,
+                $absoluteTo,
+                $fullPageCount,
                 $this->combinedPreview($pageTexts, $pageFrom, $pageTo),
-                'Zakres stron ' . $this->pageLabel($pageFrom, $pageTo) . ' z PDF ' . (string) ($file['name'] ?? '') . ' wymaga ręcznej weryfikacji: ' . $note
+                'Zakres stron ' . $this->pageLabel($absoluteFrom, $absoluteTo) . ' z PDF '
+                . (string) ($file['name'] ?? '') . ' wymaga recznej weryfikacji: ' . $note
             );
         }
 
@@ -208,18 +254,17 @@ final class PdfInvoiceCandidateParser
             }
 
             $pageText = trim((string) ($pageTexts[$page - 1] ?? ''));
-            if ($pageText === '') {
-                continue;
-            }
-
-            $documents[] = $this->buildManualReviewRangeDocument(
-                $file,
-                $page,
-                $page,
-                $pageCount,
+            $parsed = $this->parsePageHeuristically(
                 $pageText,
-                'Strona ' . $page . ' z PDF ' . (string) ($file['name'] ?? '') . ' nie została przypisana do żadnego dokumentu przez AI i wymaga ręcznej weryfikacji.'
+                $file,
+                $pageOffset + $page,
+                $fullPageCount,
+                'AI nie przypisalo strony do zadnego dokumentu.'
             );
+
+            if ($parsed !== null) {
+                $documents[] = $parsed;
+            }
         }
 
         return $documents;
@@ -246,7 +291,7 @@ final class PdfInvoiceCandidateParser
         $issueDate = $this->normalizeAiDate($item['issue_date'] ?? null);
         $dueDate = $this->normalizeAiDate($item['due_date'] ?? null);
         $manualReview = (bool) ($item['manual_review'] ?? false);
-        $note = $this->normalizeNullableString($item['note'] ?? null) ?? 'Dane rozpoznane przez AI z całego PDF.';
+        $note = $this->normalizeNullableString($item['note'] ?? null) ?? 'Dane rozpoznane przez AI z caĹ‚ego PDF.';
 
         $reviewReasons = [];
         if ($issuerName === null || $this->isSuspiciousIssuerName($issuerName)) {
@@ -273,7 +318,7 @@ final class PdfInvoiceCandidateParser
             'source_page_to' => $pageTo,
             'source_page_label' => $pageLabel,
             'recognition_mode' => 'ai_whole_pdf',
-            'recognition_mode_label' => 'AI (cały PDF)',
+            'recognition_mode_label' => 'AI (caĹ‚y PDF)',
             'source_type' => $sourceType,
             'page_count' => $pageCount > 0 ? $pageCount : null,
             'invoice_number' => $invoiceNumber,
@@ -284,9 +329,9 @@ final class PdfInvoiceCandidateParser
             'issue_date' => $issueDate,
             'due_date' => $dueDate,
             'status_badge_class' => $requiresManualReview ? 'warn' : 'ok',
-            'status_label' => $requiresManualReview ? 'Do ręcznej weryfikacji' : 'Rozpoznany przez AI',
+            'status_label' => $requiresManualReview ? 'Do rÄ™cznej weryfikacji' : 'Rozpoznany przez AI',
             'note' => $requiresManualReview
-                ? 'Zakres stron ' . $pageLabel . ' z PDF ' . (string) ($file['name'] ?? '') . ' wymaga ręcznej weryfikacji: ' . implode('; ', array_merge([$note], $reviewReasons)) . '.'
+                ? 'Zakres stron ' . $pageLabel . ' z PDF ' . (string) ($file['name'] ?? '') . ' wymaga rÄ™cznej weryfikacji: ' . implode('; ', array_merge([$note], $reviewReasons)) . '.'
                 : $note,
             'text_preview' => $this->combinedPreview($pageTexts, $pageFrom, $pageTo),
             '_ai_used' => true,
@@ -304,7 +349,7 @@ final class PdfInvoiceCandidateParser
         if ($normalizedPage === '') {
             $note = 'Strona z PDF ' . (string) ($file['name'] ?? '') . ' nie zawiera czytelnej warstwy tekstowej.';
             if ($aiFailureNote !== null) {
-                $note .= ' Dodatkowo AI nie rozpoznało dokumentu: ' . $aiFailureNote;
+                $note .= ' Dodatkowo AI nie rozpoznaĹ‚o dokumentu: ' . $aiFailureNote;
             }
 
             return $this->buildManualReviewPageDocument(
@@ -326,9 +371,9 @@ final class PdfInvoiceCandidateParser
         $sourceType = $this->detectSourceType($search);
 
         if (!$this->looksLikeInvoicePage($normalizedPage, $search, $invoiceNumber, $issuerName, $amountDue, $issueDate, $dueDate)) {
-            $note = 'Strona z PDF ' . (string) ($file['name'] ?? '') . ' wymaga ręcznej weryfikacji.';
+            $note = 'Strona z PDF ' . (string) ($file['name'] ?? '') . ' wymaga rÄ™cznej weryfikacji.';
             if ($aiFailureNote !== null) {
-                $note .= ' Rozpoznawanie AI zakończyło się błędem: ' . $aiFailureNote;
+                $note .= ' Rozpoznawanie AI zakoĹ„czyĹ‚o siÄ™ bĹ‚Ä™dem: ' . $aiFailureNote;
             }
 
             return $this->buildManualReviewPageDocument(
@@ -350,11 +395,11 @@ final class PdfInvoiceCandidateParser
         );
         $requiresManualReview = $reviewReasons !== [];
         $note = $requiresManualReview
-            ? 'Strona z PDF ' . (string) ($file['name'] ?? '') . ' wymaga ręcznej weryfikacji: ' . implode('; ', $reviewReasons) . '.'
+            ? 'Strona z PDF ' . (string) ($file['name'] ?? '') . ' wymaga rÄ™cznej weryfikacji: ' . implode('; ', $reviewReasons) . '.'
             : 'Dane rozpoznane z pojedynczej strony PDF.';
 
         if ($aiFailureNote !== null) {
-            $note .= ' Fallback lokalny po błędzie AI: ' . $aiFailureNote . '.';
+            $note .= ' Fallback lokalny po bĹ‚Ä™dzie AI: ' . $aiFailureNote . '.';
         }
 
         return [
@@ -376,7 +421,7 @@ final class PdfInvoiceCandidateParser
             'issue_date' => $issueDate,
             'due_date' => $dueDate,
             'status_badge_class' => $requiresManualReview ? 'warn' : 'ok',
-            'status_label' => $requiresManualReview ? 'Do ręcznej weryfikacji' : 'Rozpoznany tekstowo',
+            'status_label' => $requiresManualReview ? 'Do rÄ™cznej weryfikacji' : 'Rozpoznany tekstowo',
             'note' => $note,
             'text_preview' => $this->preview($normalizedPage),
         ];
@@ -424,7 +469,7 @@ final class PdfInvoiceCandidateParser
             'issue_date' => null,
             'due_date' => null,
             'status_badge_class' => 'warn',
-            'status_label' => 'Do ręcznej weryfikacji',
+            'status_label' => 'Do rÄ™cznej weryfikacji',
             'note' => $note,
             'text_preview' => $this->preview($pageText),
         ];
@@ -451,7 +496,7 @@ final class PdfInvoiceCandidateParser
             'issue_date' => null,
             'due_date' => null,
             'status_badge_class' => $type === 'scan_like' ? 'warn' : 'error',
-            'status_label' => $type === 'scan_like' ? 'Skan / brak tekstu' : 'Błąd odczytu',
+            'status_label' => $type === 'scan_like' ? 'Skan / brak tekstu' : 'BĹ‚Ä…d odczytu',
             'note' => (string) ($payload['note'] ?? ''),
             'text_preview' => '',
         ];
@@ -474,7 +519,7 @@ final class PdfInvoiceCandidateParser
             'source_page_to' => $pageTo,
             'source_page_label' => $this->pageLabel($pageFrom, $pageTo),
             'recognition_mode' => 'ai_whole_pdf',
-            'recognition_mode_label' => 'AI (cały PDF)',
+            'recognition_mode_label' => 'AI (caĹ‚y PDF)',
             'source_type' => 'page_review',
             'page_count' => $pageCount > 0 ? $pageCount : null,
             'invoice_number' => null,
@@ -484,7 +529,7 @@ final class PdfInvoiceCandidateParser
             'issue_date' => null,
             'due_date' => null,
             'status_badge_class' => 'warn',
-            'status_label' => 'Do ręcznej weryfikacji',
+            'status_label' => 'Do rÄ™cznej weryfikacji',
             'note' => $note,
             'text_preview' => $this->preview($text),
             '_ai_used' => true,
@@ -527,13 +572,13 @@ final class PdfInvoiceCandidateParser
         if ($issuerName === null || $issuerName === '') {
             $reasons[] = 'brak rozpoznanej nazwy wystawcy';
         } elseif ($this->isSuspiciousIssuerName($issuerName)) {
-            $reasons[] = 'nazwa wystawcy wygląda na błędnie odczytaną';
+            $reasons[] = 'nazwa wystawcy wyglÄ…da na bĹ‚Ä™dnie odczytanÄ…';
         }
 
         if ($invoiceNumber === null || $invoiceNumber === '') {
             $reasons[] = 'brak rozpoznanego numeru dokumentu';
         } elseif ($this->isSuspiciousInvoiceNumber($invoiceNumber)) {
-            $reasons[] = 'numer dokumentu wygląda na błędnie odczytany';
+            $reasons[] = 'numer dokumentu wyglÄ…da na bĹ‚Ä™dnie odczytany';
         }
 
         if ($amountDue === null) {
@@ -541,7 +586,7 @@ final class PdfInvoiceCandidateParser
         }
 
         if ($this->looksLikeNarrativeText($chunk, $issuerName, $invoiceNumber, $amountDue, $issueDate, $dueDate)) {
-            $reasons[] = 'strona wygląda bardziej jak opis lub notatka niż kompletna faktura';
+            $reasons[] = 'strona wyglÄ…da bardziej jak opis lub notatka niĹĽ kompletna faktura';
         }
 
         return array_values(array_unique($reasons));
@@ -564,12 +609,12 @@ final class PdfInvoiceCandidateParser
             return true;
         }
 
-        if (preg_match('/[a-ząćęłńóśźż]/iu', $trimmed) !== 1) {
+        if (preg_match('/[a-zÄ…Ä‡Ä™Ĺ‚Ĺ„ĂłĹ›ĹşĹĽ]/iu', $trimmed) !== 1) {
             return true;
         }
 
         $digitCount = preg_match_all('/\d/', $trimmed);
-        $letterCount = preg_match_all('/[a-ząćęłńóśźż]/iu', $trimmed);
+        $letterCount = preg_match_all('/[a-zÄ…Ä‡Ä™Ĺ‚Ĺ„ĂłĹ›ĹşĹĽ]/iu', $trimmed);
 
         return $digitCount !== false
             && $letterCount !== false
@@ -661,14 +706,14 @@ final class PdfInvoiceCandidateParser
             return $this->cleanIssuer((string) ($matches[1] ?? ''));
         }
 
-        if (preg_match('/Wystawca\s+Nabywca\s+([A-ZŁŚŻŹĆŃÓĄĘ][^\n]{2,120})/iu', $chunk, $matches) === 1) {
+        if (preg_match('/Wystawca\s+Nabywca\s+([A-ZĹĹšĹ»ĹąÄ†ĹĂ“Ä„Ä][^\n]{2,120})/iu', $chunk, $matches) === 1) {
             $value = (string) ($matches[1] ?? '');
             $value = preg_replace('/\s+Artur\b.*$/iu', '', $value) ?? $value;
 
             return $this->cleanIssuer($value);
         }
 
-        if (preg_match('/^([A-ZŁŚŻŹĆŃÓĄĘ][^\n]{2,120})$/mu', $chunk, $matches) === 1) {
+        if (preg_match('/^([A-ZĹĹšĹ»ĹąÄ†ĹĂ“Ä„Ä][^\n]{2,120})$/mu', $chunk, $matches) === 1) {
             $line = $this->cleanIssuer((string) ($matches[1] ?? ''));
             if (!$this->isSuspiciousIssuerName($line) && !str_contains($this->normalizeForSearch($line), 'artur dmochowski')) {
                 return $line;
@@ -712,7 +757,7 @@ final class PdfInvoiceCandidateParser
     {
         $patterns = [
             '/Date due\s+([A-Z][a-z]{2,9}\s+[0-9]{1,2},\s+[0-9]{4})/i',
-            '/Termin p[łl]atno[śs]ci\s+([0-9oO]{4}[-\.][0-9oO]{2}[-\.][0-9oO]{2})/iu',
+            '/Termin p[Ĺ‚l]atno[Ĺ›s]ci\s+([0-9oO]{4}[-\.][0-9oO]{2}[-\.][0-9oO]{2})/iu',
             '/Payment Due\s+([0-9]{1,2}-[A-Z]{3}-[0-9]{4})/i',
         ];
 
@@ -731,12 +776,12 @@ final class PdfInvoiceCandidateParser
     private function extractAmountDue(string $chunk, string $search): ?string
     {
         $patterns = [
-            '/Amount due\s+[$€]?\s*([0-9][0-9\., ]{0,20})\s*(USD|EUR|PLN)?/i',
-            '/TOTAL\s+[$€]?\s*([0-9][0-9\., ]{0,20})\s*(USD|EUR|PLN)?/i',
-            '/Total\s+[$€]?\s*([0-9][0-9\., ]{0,20})\s*(USD|EUR|PLN)?/i',
-            '/Do zap[łl]aty\s+([0-9][0-9\., ]{0,20})\s*(PLN|USD|EUR)?/iu',
-            '/WARTO[ŚS]C\s+BRUTTO\s+([0-9lI\., ]+)\s*z[łl]/iu',
-            '/POZOSTA[ŁL]O DO ZAP[ŁL]ATY\s+([0-9lI\., ]+)\s*z[łl]/iu',
+            '/Amount due\s+[$â‚¬]?\s*([0-9][0-9\., ]{0,20})\s*(USD|EUR|PLN)?/i',
+            '/TOTAL\s+[$â‚¬]?\s*([0-9][0-9\., ]{0,20})\s*(USD|EUR|PLN)?/i',
+            '/Total\s+[$â‚¬]?\s*([0-9][0-9\., ]{0,20})\s*(USD|EUR|PLN)?/i',
+            '/Do zap[Ĺ‚l]aty\s+([0-9][0-9\., ]{0,20})\s*(PLN|USD|EUR)?/iu',
+            '/WARTO[ĹšS]C\s+BRUTTO\s+([0-9lI\., ]+)\s*z[Ĺ‚l]/iu',
+            '/POZOSTA[ĹL]O DO ZAP[ĹL]ATY\s+([0-9lI\., ]+)\s*z[Ĺ‚l]/iu',
         ];
 
         foreach ($patterns as $pattern) {
@@ -763,7 +808,7 @@ final class PdfInvoiceCandidateParser
             }
         }
 
-        if (preg_match('/z[łl]/iu', $chunk) === 1) {
+        if (preg_match('/z[Ĺ‚l]/iu', $chunk) === 1) {
             return 'PLN';
         }
 
@@ -771,7 +816,7 @@ final class PdfInvoiceCandidateParser
             return 'USD';
         }
 
-        if (str_contains($search, '€') || str_contains($search, 'eur')) {
+        if (str_contains($search, 'â‚¬') || str_contains($search, 'eur')) {
             return 'EUR';
         }
 
@@ -984,4 +1029,81 @@ final class PdfInvoiceCandidateParser
 
         return $this->preview(implode("\n", $selected));
     }
+
+    private function shouldRetryManualReviewRange(int $pageFrom, int $pageTo, int $retryDepth): bool
+    {
+        if ($retryDepth >= self::MAX_MANUAL_REVIEW_RETRY_DEPTH) {
+            return false;
+        }
+
+        return ($pageTo - $pageFrom + 1) > 1;
+    }
+
+    private function retryManualReviewRange(
+        array $pageTexts,
+        array $pageImages,
+        array $file,
+        int $pageFrom,
+        int $pageTo,
+        int $pageOffset,
+        int $fullPageCount,
+        int $retryDepth
+    ): array {
+        $documents = [];
+        $chunkSize = $retryDepth === 0 ? self::MANUAL_REVIEW_RETRY_CHUNK_SIZE : 1;
+
+        for ($chunkStart = $pageFrom; $chunkStart <= $pageTo; $chunkStart += $chunkSize) {
+            $chunkEnd = min($pageTo, $chunkStart + $chunkSize - 1);
+            $chunkLength = $chunkEnd - $chunkStart + 1;
+
+            foreach ($this->parseWholePdf(
+                array_slice($pageTexts, $chunkStart - 1, $chunkLength),
+                array_slice($pageImages, $chunkStart - 1, $chunkLength),
+                $file,
+                $chunkLength,
+                $pageOffset + $chunkStart - 1,
+                $fullPageCount,
+                $retryDepth + 1
+            ) as $document) {
+                $documents[] = $document;
+            }
+        }
+
+        if ($documents !== []) {
+            return $documents;
+        }
+
+        $absoluteFrom = $pageOffset + $pageFrom;
+        $absoluteTo = $pageOffset + $pageTo;
+
+        return [
+            $this->buildManualReviewRangeDocument(
+                $file,
+                $absoluteFrom,
+                $absoluteTo,
+                $fullPageCount,
+                $this->combinedPreview($pageTexts, $pageFrom, $pageTo),
+                'Zakres stron ' . $this->pageLabel($absoluteFrom, $absoluteTo) . ' z PDF '
+                . (string) ($file['name'] ?? '') . ' wymaga recznej weryfikacji po ponownej analizie AI.'
+            ),
+        ];
+    }
+
+    private function offsetDocumentPages(array $document, int $pageOffset, int $fullPageCount): array
+    {
+        $pageFrom = (int) ($document['source_page_from'] ?? 0);
+        $pageTo = (int) ($document['source_page_to'] ?? $pageFrom);
+        $absoluteFrom = $pageFrom > 0 ? $pageOffset + $pageFrom : $pageFrom;
+        $absoluteTo = $pageTo > 0 ? $pageOffset + $pageTo : $pageTo;
+
+        return array_replace($document, [
+            'source_chunk_index' => $absoluteFrom,
+            'source_page_number' => $absoluteFrom,
+            'source_page_from' => $absoluteFrom,
+            'source_page_to' => $absoluteTo,
+            'source_page_label' => $this->pageLabel($absoluteFrom, $absoluteTo),
+            'page_count' => $fullPageCount > 0 ? $fullPageCount : ($document['page_count'] ?? null),
+        ]);
+    }
 }
+
