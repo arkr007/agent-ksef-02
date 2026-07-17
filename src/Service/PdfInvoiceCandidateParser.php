@@ -8,7 +8,7 @@ use DateTimeImmutable;
 
 final class PdfInvoiceCandidateParser
 {
-    private const MANUAL_REVIEW_RETRY_CHUNK_SIZE = 8;
+    private const MANUAL_REVIEW_RETRY_CHUNK_SIZE = 4;
     private const MAX_MANUAL_REVIEW_RETRY_DEPTH = 2;
 
     public function __construct(
@@ -117,7 +117,8 @@ final class PdfInvoiceCandidateParser
         int $pageCount,
         int $pageOffset = 0,
         ?int $fullPageCount = null,
-        int $retryDepth = 0
+        int $retryDepth = 0,
+        int $timeoutRetryAttempt = 0
     ): array {
         $fullPageCount ??= $pageCount;
 
@@ -145,6 +146,19 @@ final class PdfInvoiceCandidateParser
             $aiFailureNote = (string) ($aiAttempt['note'] ?? 'Blad rozpoznawania AI.');
         }
 
+        if ($aiFailureNote !== null && $this->isTimeoutFailure($aiFailureNote) && $pageCount > 1) {
+            return $this->retryManualReviewRange(
+                $pageTexts,
+                $pageImages,
+                $file,
+                1,
+                $pageCount,
+                $pageOffset,
+                $fullPageCount,
+                $retryDepth
+            );
+        }
+
         $fallbackDocuments = [];
         for ($pageIndex = 0; $pageIndex < $pageCount; $pageIndex++) {
             $parsed = $this->parsePageHeuristically(
@@ -154,6 +168,30 @@ final class PdfInvoiceCandidateParser
                 $fullPageCount,
                 $aiFailureNote
             );
+
+            if (
+                $parsed !== null
+                && $aiFailureNote !== null
+                && $this->isTimeoutFailure($aiFailureNote)
+                && $pageCount === 1
+                && $timeoutRetryAttempt < 1
+                && $this->shouldRetrySinglePageForMissingAmount($parsed)
+            ) {
+                $retriedDocuments = $this->parseWholePdf(
+                    $pageTexts,
+                    $pageImages,
+                    $file,
+                    $pageCount,
+                    $pageOffset,
+                    $fullPageCount,
+                    $retryDepth,
+                    $timeoutRetryAttempt + 1
+                );
+
+                if ($retriedDocuments !== []) {
+                    return $retriedDocuments;
+                }
+            }
 
             if ($parsed !== null) {
                 $fallbackDocuments[] = $parsed;
@@ -1063,7 +1101,8 @@ final class PdfInvoiceCandidateParser
                 $chunkLength,
                 $pageOffset + $chunkStart - 1,
                 $fullPageCount,
-                $retryDepth + 1
+                $retryDepth + 1,
+                0
             ) as $document) {
                 $documents[] = $document;
             }
@@ -1104,6 +1143,25 @@ final class PdfInvoiceCandidateParser
             'source_page_label' => $this->pageLabel($absoluteFrom, $absoluteTo),
             'page_count' => $fullPageCount > 0 ? $fullPageCount : ($document['page_count'] ?? null),
         ]);
+    }
+
+    private function isTimeoutFailure(string $note): bool
+    {
+        $normalized = strtolower($note);
+
+        return str_contains($normalized, 'timed out')
+            || str_contains($normalized, 'timeout')
+            || str_contains($normalized, 'operation timed out');
+    }
+
+    private function shouldRetrySinglePageForMissingAmount(array $document): bool
+    {
+        $hasPartialIdentity = trim((string) ($document['issuer_name'] ?? '')) !== ''
+            || trim((string) ($document['invoice_number'] ?? '')) !== '';
+        $hasAmount = trim((string) ($document['amount_due'] ?? '')) !== ''
+            || trim((string) ($document['gross_amount'] ?? '')) !== '';
+
+        return $hasPartialIdentity && !$hasAmount;
     }
 }
 

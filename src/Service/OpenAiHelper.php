@@ -9,6 +9,7 @@ use RuntimeException;
 final class OpenAiHelper implements DocumentAiRecognizerInterface
 {
     private const RESPONSES_URL = 'https://api.openai.com/v1/responses';
+    private const REQUEST_TIMEOUT_SECONDS = 240;
 
     public function __construct(
         private ApplicationSettings $applicationSettings
@@ -47,7 +48,7 @@ final class OpenAiHelper implements DocumentAiRecognizerInterface
         }
 
         try {
-            @set_time_limit(300);
+            @set_time_limit(360);
 
             $payload = [
                 'model' => $model !== '' ? $model : 'gpt-5-mini',
@@ -152,7 +153,7 @@ final class OpenAiHelper implements DocumentAiRecognizerInterface
                 'Content-Type: application/json',
             ],
             CURLOPT_POSTFIELDS => $jsonPayload,
-            CURLOPT_TIMEOUT => 180,
+            CURLOPT_TIMEOUT => self::REQUEST_TIMEOUT_SECONDS,
             CURLOPT_CONNECTTIMEOUT => 20,
         ]);
 
